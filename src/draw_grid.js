@@ -32,15 +32,6 @@ module.exports = function(opts, cy, debounce) {
   resetCanvas();
 
   var drawGrid = function() {
-    options = {
-      gridColor: "#d0d0d0",
-      lineWidth: 1,
-      gridColorSmall: "#EBEDF3",
-      lineWidthSmall: 1,
-      gridSpacing: 48,
-      gridSpacingSmall: 8,
-      incrementSmall: 1
-    };
     var zoom = cy.zoom();
     var canvasWidth = cy.width();
     var canvasHeight = cy.height();
