@@ -1,110 +1,135 @@
-module.exports = function (opts, cy, debounce) {
+module.exports = function(opts, cy, debounce) {
 
-    var options = opts;
+  var options = opts;
 
-    var changeOptions = function (opts) {
-      options = opts;
-    };
+  var changeOptions = function(opts) {
+    options = opts;
+  };
 
-    var offset = function(elt) {
-        var rect = elt.getBoundingClientRect();
-
-        return {
-          top: rect.top + document.documentElement.scrollTop,
-          left: rect.left + document.documentElement.scrollLeft
-        }
-    };
-
-    var $canvas = document.createElement('canvas');
-    var $container = cy.container();
-    var ctx = $canvas.getContext( '2d' );
-    $container.appendChild( $canvas );
-
-    var resetCanvas = function () {
-        $canvas.height = 0;
-        $canvas.width = 0;
-        $canvas.style.position = 'absolute';
-        $canvas.style.top = 0;
-        $canvas.style.left = 0;
-        $canvas.style.zIndex = options.gridStackOrder;
-    };
-
-    resetCanvas();
-
-    var drawGrid = function() {
-        var zoom = cy.zoom();
-        var canvasWidth = cy.width();
-        var canvasHeight = cy.height();
-        var increment = options.gridSpacing*zoom;
-        var pan = cy.pan();
-        var initialValueX = pan.x%increment;
-        var initialValueY = pan.y%increment;
-
-        ctx.strokeStyle = options.gridColor;
-        ctx.lineWidth = options.lineWidth;
-
-        var data = '\t<svg width="'+ canvasWidth + '" height="'+ canvasHeight + '" xmlns="http://www.w3.org/2000/svg">\n\
-            <defs>\n\
-                <pattern id="horizontalLines" width="' + increment + '" height="' + increment + '" patternUnits="userSpaceOnUse">\n\
-                    <path d="M ' + increment + ' 0 L 0 0 0 ' + 0 + '" fill="none" stroke="' + options.gridColor + '" stroke-width="' + options.lineWidth + '" />\n\
-                </pattern>\n\
-                <pattern id="verticalLines" width="' + increment + '" height="' + increment + '" patternUnits="userSpaceOnUse">\n\
-                    <path d="M ' + 0 + ' 0 L 0 0 0 ' + increment + '" fill="none" stroke="' + options.gridColor + '" stroke-width="' + options.lineWidth + '" />\n\
-                </pattern>\n\
-            </defs>\n\
-            <rect width="100%" height="100%" fill="url(#horizontalLines)" transform="translate('+ 0 + ', ' + initialValueY + ')" />\n\
-            <rect width="100%" height="100%" fill="url(#verticalLines)" transform="translate('+ initialValueX + ', ' + 0 + ')" />\n\
-        </svg>\n';
-
-        var img = new Image();
-        data = encodeURIComponent(data);
-        
-        img.onload = function () {
-            clearDrawing();
-            ctx.drawImage(img, 0, 0);
-        };
-        
-        img.src = "data:image/svg+xml," + data;
-    };
-    
-    var clearDrawing = function() {
-        var width = cy.width();
-        var height = cy.height();
-
-        ctx.clearRect( 0, 0, width, height );
-    };
-
-    var resizeCanvas = debounce(function() {
-        $canvas.height = cy.height();
-        $canvas.width = cy.width();
-        $canvas.style.position = 'absolute';
-        $canvas.style.top = 0;
-        $canvas.style.left = 0;
-        $canvas.style.zIndex = options.gridStackOrder;
-
-        setTimeout( function() {
-            $canvas.height = cy.height();
-            $canvas.width = cy.width();
-
-            var canvasBb = offset($canvas);
-            var containerBb = offset($container);
-            $canvas.style.top = -(canvasBb.top - containerBb.top);
-            $canvas.style.left = -(canvasBb.left - containerBb.left);
-            drawGrid();
-        }, 0 );
-
-    }, 250);
-
-
-
+  var offset = function(elt) {
+    var rect = elt.getBoundingClientRect();
 
     return {
-        initCanvas: resizeCanvas,
-        resizeCanvas: resizeCanvas,
-        resetCanvas: resetCanvas,
-        clearCanvas: clearDrawing,
-        drawGrid: drawGrid,
-        changeOptions: changeOptions,
-        sizeCanvas: drawGrid
+      top: rect.top + document.documentElement.scrollTop,
+      left: rect.left + document.documentElement.scrollLeft
+    }
+  };
+
+  var $canvas = document.createElement('canvas');
+  var $container = cy.container();
+  var ctx = $canvas.getContext('2d');
+  $container.appendChild($canvas);
+
+  var resetCanvas = function() {
+    $canvas.height = 0;
+    $canvas.width = 0;
+    $canvas.style.position = 'absolute';
+    $canvas.style.top = 0;
+    $canvas.style.left = 0;
+    $canvas.style.zIndex = options.gridStackOrder;
+  };
+
+  resetCanvas();
+
+  var drawGrid = function() {
+    options = {
+      gridColor: "#d0d0d0",
+      lineWidth: 1,
+      gridColorSmall: "#EBEDF3",
+      lineWidthSmall: 1,
+      gridSpacing: 48,
+      gridSpacingSmall: 8,
+      incrementSmall: 1
     };
+    var zoom = cy.zoom();
+    var canvasWidth = cy.width();
+    var canvasHeight = cy.height();
+    var increment = options.gridSpacing * zoom;
+    var incrementSmall = options.gridSpacingSmall * zoom;
+    var pan = cy.pan();
+    var initialValueX = pan.x % increment;
+    var initialValueY = pan.y % increment;
+
+    ctx.strokeStyle = options.gridColor;
+    ctx.lineWidth = options.lineWidth;
+
+
+    clearDrawing();
+    for (var y = initialValueY; y < canvasHeight; y += increment) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvasWidth, y);
+      ctx.stroke();
+    }
+
+    // Draw large vertical grid lines
+    for (var x = initialValueX; x < canvasWidth; x += increment) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, canvasHeight);
+      ctx.stroke();
+    }
+
+    if (options.gridSpacingSmall > 0 && options.gridColorSmall) {
+      ctx.strokeStyle = options.gridColorSmall;
+      ctx.lineWidth = options.lineWidthSmall;
+
+      // Draw small horizontal grid lines
+      for (var y = initialValueY; y < canvasHeight; y += incrementSmall) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvasWidth, y);
+        ctx.stroke();
+      }
+
+      // Draw small vertical grid lines
+      for (var x = initialValueX; x < canvasWidth; x += incrementSmall) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvasHeight);
+        ctx.stroke();
+      }
+    }
+  };
+
+  var clearDrawing = function() {
+    var width = cy.width();
+    var height = cy.height();
+
+    ctx.clearRect(0, 0, width, height);
+  };
+
+  var resizeCanvas = debounce(function() {
+    $canvas.height = cy.height();
+    $canvas.width = cy.width();
+    $canvas.style.position = 'absolute';
+    $canvas.style.top = 0;
+    $canvas.style.left = 0;
+    $canvas.style.zIndex = options.gridStackOrder;
+
+    setTimeout(function() {
+      $canvas.height = cy.height();
+      $canvas.width = cy.width();
+
+      var canvasBb = offset($canvas);
+      var containerBb = offset($container);
+      $canvas.style.top = -(canvasBb.top - containerBb.top);
+      $canvas.style.left = -(canvasBb.left - containerBb.left);
+      drawGrid();
+    }, 0);
+
+  }, 250);
+
+
+
+
+  return {
+    initCanvas: resizeCanvas,
+    resizeCanvas: resizeCanvas,
+    resetCanvas: resetCanvas,
+    clearCanvas: clearDrawing,
+    drawGrid: drawGrid,
+    changeOptions: changeOptions,
+    sizeCanvas: drawGrid
+  };
 };
