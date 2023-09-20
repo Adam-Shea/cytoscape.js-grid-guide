@@ -3138,7 +3138,7 @@ module.exports = function (cy, gridSpacing, gridSpacingOffset) {
     var snap = { };
 
     snap.changeOptions = function (opts) {
-        gridSpacing = opts.gridSpacing;
+        gridSpacing = opts.gridSpacingSmall;
         gridSpacingOffset = opts.snapToGridCenter ? 0.5 : 0;
     };
 
