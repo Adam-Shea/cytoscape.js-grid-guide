@@ -987,28 +987,30 @@ module.exports = function (opts, cy, debounce) {
 	var nodeToAlign;
 	lines.snapToAlignmentLocation = function(activeNodes){
 		nodeToAlign = activeNodes;
-		activeNodes.each(function (node, i){
-			if(typeof node === "number") {
-				node = i;
-			}
-			var newPos = node.renderedPosition();
-			if (alignedLocations.h){
-				oldMousePos = currMousePos;
-				newPos.x -= alignedLocations.h;
-				node.renderedPosition(newPos);
-			}
-			if (alignedLocations.v){
-				oldMousePos = currMousePos;
-				newPos.y -= alignedLocations.v;
-				node.renderedPosition(newPos);
-			};
-			if (alignedLocations.v || alignedLocations.h){
-				alignedLocations.h = null;
-				alignedLocations.v = null;
-				nodeToAlign.lock();
-			}
-		});
-		lines.update(activeNodes);
+    if(activeNodes){
+      activeNodes.each(function (node, i){
+        if(typeof node === "number") {
+          node = i;
+        }
+        var newPos = node.renderedPosition();
+        if (alignedLocations.h){
+          oldMousePos = currMousePos;
+          newPos.x -= alignedLocations.h;
+          node.renderedPosition(newPos);
+        }
+        if (alignedLocations.v){
+          oldMousePos = currMousePos;
+          newPos.y -= alignedLocations.v;
+          node.renderedPosition(newPos);
+        };
+        if (alignedLocations.v || alignedLocations.h){
+          alignedLocations.h = null;
+          alignedLocations.v = null;
+          nodeToAlign.lock();
+        }
+      });
+      lines.update(activeNodes);
+    }
 	}
 
 	return {

@@ -7,7 +7,7 @@
     "main": "src/index.js"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "gulp": "gulp ."
   },
   "repository": {
     "type": "git",
@@ -26,7 +26,7 @@
   },
   "homepage": "https://github.com/iVis-at-Bilkent/cytoscape.js-grid-guide",
   "devDependencies": {
-    "gulp": "^3.9.1",
+    "gulp": "^5.0.0",
     "gulp-jshint": "^1.8.5",
     "gulp-prompt": "^0.1.1",
     "gulp-replace": "^0.4.0",
@@ -36,8 +36,5 @@
   },
   "dependencies": {
     "functional-red-black-tree": "^1.0.1"
-  },
-  "overrides": {
-    "graceful-fs": "^4.2.11"
   }
 }
