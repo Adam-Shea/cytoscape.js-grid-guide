@@ -2635,20 +2635,21 @@ module.exports = function (opts, cy, debounce) {
 			mouseLine(activeNodes);
 		}
 
-		activeNodes.each(function (node, i) {
-			if(typeof node === "number") {
-				node = i;
-			}
-			if (options.geometricGuideline){
-				lines.searchForLine("horizontal", node);
-				lines.searchForLine("vertical", node);
-			}
+    if (activeNodes)
+      activeNodes.each(function (node, i) {
+        if(typeof node === "number") {
+          node = i;
+        }
+        if (options.geometricGuideline){
+          lines.searchForLine("horizontal", node);
+          lines.searchForLine("vertical", node);
+        }
 
-			if (options.distributionGuidelines){
-				lines.horizontalDistribution(node);
-				lines.verticalDistribution(node);
-			}
-		});
+        if (options.distributionGuidelines){
+          lines.horizontalDistribution(node);
+          lines.verticalDistribution(node);
+        }
+      });
 
 	};
 
