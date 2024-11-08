@@ -1,4 +1,2327 @@
 (function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
+module.exports = function (cytoscape, cy, apiRegistered) {
+
+    // Needed because parent nodes cannot be moved in Cytoscape.js < v3.2
+    function moveTopDown(node, dx, dy) {
+        var nodes = node.union(node.descendants());
+
+        nodes.filter(":childless").positions(function (node, i) {
+            if(typeof node === "number") {
+              node = i;
+            }
+            var pos = node.position();
+            return {
+                x: pos.x + dx,
+                y: pos.y + dy
+            };
+        });
+    }
+
+    function getTopMostNodes(nodes) {
+        var nodesMap = {};
+        for (var i = 0; i < nodes.length; i++) {
+            nodesMap[nodes[i].id()] = true;
+        }
+        var roots = nodes.filter(function (ele, i) {
+            if(typeof ele === "number") {
+              ele = i;
+            }
+            
+            var parent = ele.parent()[0];
+            while(parent != null){
+                if(nodesMap[parent.id()]){
+                    return false;
+                }
+                parent = parent.parent()[0];
+            }
+            return true;
+        });
+
+        return roots;
+    }
+
+
+    // If extension api functions are not registed to cytoscape yet register them here.
+		// Note that ideally these functions should not be directly registered to core from cytoscape.js
+		// extensions
+    if ( !apiRegistered ) {
+
+      cytoscape( "collection", "align", function (horizontal, vertical, alignTo) {
+
+          var eles = getTopMostNodes(this.nodes(":visible"));
+
+          var modelNode = alignTo ? alignTo : eles[0];
+
+          eles = eles.not(modelNode);
+
+          horizontal = horizontal ? horizontal : "none";
+          vertical = vertical ? vertical : "none";
+
+
+          // 0 for center
+          var xFactor = 0;
+          var yFactor = 0;
+
+          if (vertical == "left")
+              xFactor = -1;
+          else if (vertical == "right")
+              xFactor = 1;
+
+          if (horizontal == "top")
+              yFactor = -1;
+          else if (horizontal == "bottom")
+              yFactor = 1;
+
+
+          for (var i = 0; i < eles.length; i++) {
+              var node = eles[i];
+              var oldPos = Object.assign({}, node.position());
+              var newPos = Object.assign({}, node.position());
+
+              if (vertical != "none")
+                  newPos.x = modelNode.position("x") + xFactor * (modelNode.outerWidth() - node.outerWidth()) / 2;
+
+
+              if (horizontal != "none")
+                  newPos.y = modelNode.position("y") + yFactor * (modelNode.outerHeight() - node.outerHeight()) / 2;
+
+              moveTopDown(node, newPos.x - oldPos.x, newPos.y - oldPos.y);
+          }
+
+          return this;
+      });
+
+    }
+
+
+    if (cy.undoRedo) {
+        function getNodePositions() {
+            var positionsAndSizes = {};
+            var nodes = cy.nodes();
+
+            for (var i = 0; i < nodes.length; i++) {
+                var ele = nodes[i];
+                positionsAndSizes[ele.id()] = {
+                    x: ele.position("x"),
+                    y: ele.position("y")
+                };
+            }
+
+            return positionsAndSizes;
+        }
+
+        function returnToPositions(nodesData) {
+            var currentPositions = {};
+            cy.nodes().not(":parent").positions(function (ele, i) {
+                if(typeof ele === "number") {
+                  ele = i;
+                }
+                currentPositions[ele.id()] = {
+                    x: ele.position("x"),
+                    y: ele.position("y")
+                };
+                var data = nodesData[ele.id()];
+                return {
+                    x: data.x,
+                    y: data.y
+                };
+            });
+
+            return currentPositions
+        }
+
+        var ur = cy.undoRedo(null, true);
+
+        ur.action("align", function (args) {
+
+            var nodesData;
+            if (args.firstTime){
+                nodesData = getNodePositions();
+                args.nodes.align(args.horizontal, args.vertical, args.alignTo);
+            }
+            else
+                nodesData = returnToPositions(args);
+
+            return nodesData;
+
+        }, function (nodesData) {
+            return returnToPositions(nodesData);
+        });
+
+    }
+
+
+
+};
+
+},{}],2:[function(require,module,exports){
+
+var debounce = (function(){
+    /**
+     * lodash 3.1.1 (Custom Build) <https://lodash.com/>
+     * Build: `lodash modern modularize exports="npm" -o ./`
+     * Copyright 2012-2015 The Dojo Foundation <http://dojofoundation.org/>
+     * Based on Underscore.js 1.8.3 <http://underscorejs.org/LICENSE>
+     * Copyright 2009-2015 Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
+     * Available under MIT license <https://lodash.com/license>
+     */
+    /** Used as the `TypeError` message for "Functions" methods. */
+    var FUNC_ERROR_TEXT = 'Expected a function';
+
+    /* Native method references for those with the same name as other `lodash` methods. */
+    var nativeMax = Math.max,
+        nativeNow = Date.now;
+
+    /**
+     * Gets the number of milliseconds that have elapsed since the Unix epoch
+     * (1 January 1970 00:00:00 UTC).
+     *
+     * @static
+     * @memberOf _
+     * @category Date
+     * @example
+     *
+     * _.defer(function(stamp) {
+     *   console.log(_.now() - stamp);
+     * }, _.now());
+     * // => logs the number of milliseconds it took for the deferred function to be invoked
+     */
+    var now = nativeNow || function() {
+            return new Date().getTime();
+        };
+
+    /**
+     * Creates a debounced function that delays invoking `func` until after `wait`
+     * milliseconds have elapsed since the last time the debounced function was
+     * invoked. The debounced function comes with a `cancel` method to cancel
+     * delayed invocations. Provide an options object to indicate that `func`
+     * should be invoked on the leading and/or trailing edge of the `wait` timeout.
+     * Subsequent calls to the debounced function return the result of the last
+     * `func` invocation.
+     *
+     * **Note:** If `leading` and `trailing` options are `true`, `func` is invoked
+     * on the trailing edge of the timeout only if the the debounced function is
+     * invoked more than once during the `wait` timeout.
+     *
+     * See [David Corbacho's article](http://drupalmotion.com/article/debounce-and-throttle-visual-explanation)
+     * for details over the differences between `_.debounce` and `_.throttle`.
+     *
+     * @static
+     * @memberOf _
+     * @category Function
+     * @param {Function} func The function to debounce.
+     * @param {number} [wait=0] The number of milliseconds to delay.
+     * @param {Object} [options] The options object.
+     * @param {boolean} [options.leading=false] Specify invoking on the leading
+     *  edge of the timeout.
+     * @param {number} [options.maxWait] The maximum time `func` is allowed to be
+     *  delayed before it's invoked.
+     * @param {boolean} [options.trailing=true] Specify invoking on the trailing
+     *  edge of the timeout.
+     * @returns {Function} Returns the new debounced function.
+     * @example
+     *
+     * // avoid costly calculations while the window size is in flux
+     * jQuery(window).on('resize', _.debounce(calculateLayout, 150));
+     *
+     * // invoke `sendMail` when the click event is fired, debouncing subsequent calls
+     * jQuery('#postbox').on('click', _.debounce(sendMail, 300, {
+     *   'leading': true,
+     *   'trailing': false
+     * }));
+     *
+     * // ensure `batchLog` is invoked once after 1 second of debounced calls
+     * var source = new EventSource('/stream');
+     * jQuery(source).on('message', _.debounce(batchLog, 250, {
+     *   'maxWait': 1000
+     * }));
+     *
+     * // cancel a debounced call
+     * var todoChanges = _.debounce(batchLog, 1000);
+     * Object.observe(models.todo, todoChanges);
+     *
+     * Object.observe(models, function(changes) {
+     *   if (_.find(changes, { 'user': 'todo', 'type': 'delete'})) {
+     *     todoChanges.cancel();
+     *   }
+     * }, ['delete']);
+     *
+     * // ...at some point `models.todo` is changed
+     * models.todo.completed = true;
+     *
+     * // ...before 1 second has passed `models.todo` is deleted
+     * // which cancels the debounced `todoChanges` call
+     * delete models.todo;
+     */
+    function debounce(func, wait, options) {
+        var args,
+            maxTimeoutId,
+            result,
+            stamp,
+            thisArg,
+            timeoutId,
+            trailingCall,
+            lastCalled = 0,
+            maxWait = false,
+            trailing = true;
+
+        if (typeof func != 'function') {
+            throw new TypeError(FUNC_ERROR_TEXT);
+        }
+        wait = wait < 0 ? 0 : (+wait || 0);
+        if (options === true) {
+            var leading = true;
+            trailing = false;
+        } else if (isObject(options)) {
+            leading = !!options.leading;
+            maxWait = 'maxWait' in options && nativeMax(+options.maxWait || 0, wait);
+            trailing = 'trailing' in options ? !!options.trailing : trailing;
+        }
+
+        function cancel() {
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+            }
+            if (maxTimeoutId) {
+                clearTimeout(maxTimeoutId);
+            }
+            lastCalled = 0;
+            maxTimeoutId = timeoutId = trailingCall = undefined;
+        }
+
+        function complete(isCalled, id) {
+            if (id) {
+                clearTimeout(id);
+            }
+            maxTimeoutId = timeoutId = trailingCall = undefined;
+            if (isCalled) {
+                lastCalled = now();
+                result = func.apply(thisArg, args);
+                if (!timeoutId && !maxTimeoutId) {
+                    args = thisArg = undefined;
+                }
+            }
+        }
+
+        function delayed() {
+            var remaining = wait - (now() - stamp);
+            if (remaining <= 0 || remaining > wait) {
+                complete(trailingCall, maxTimeoutId);
+            } else {
+                timeoutId = setTimeout(delayed, remaining);
+            }
+        }
+
+        function maxDelayed() {
+            complete(trailing, timeoutId);
+        }
+
+        function debounced() {
+            args = arguments;
+            stamp = now();
+            thisArg = this;
+            trailingCall = trailing && (timeoutId || !leading);
+
+            if (maxWait === false) {
+                var leadingCall = leading && !timeoutId;
+            } else {
+                if (!maxTimeoutId && !leading) {
+                    lastCalled = stamp;
+                }
+                var remaining = maxWait - (stamp - lastCalled),
+                    isCalled = remaining <= 0 || remaining > maxWait;
+
+                if (isCalled) {
+                    if (maxTimeoutId) {
+                        maxTimeoutId = clearTimeout(maxTimeoutId);
+                    }
+                    lastCalled = stamp;
+                    result = func.apply(thisArg, args);
+                }
+                else if (!maxTimeoutId) {
+                    maxTimeoutId = setTimeout(maxDelayed, remaining);
+                }
+            }
+            if (isCalled && timeoutId) {
+                timeoutId = clearTimeout(timeoutId);
+            }
+            else if (!timeoutId && wait !== maxWait) {
+                timeoutId = setTimeout(delayed, wait);
+            }
+            if (leadingCall) {
+                isCalled = true;
+                result = func.apply(thisArg, args);
+            }
+            if (isCalled && !timeoutId && !maxTimeoutId) {
+                args = thisArg = undefined;
+            }
+            return result;
+        }
+        debounced.cancel = cancel;
+        return debounced;
+    }
+
+    /**
+     * Checks if `value` is the [language type](https://es5.github.io/#x8) of `Object`.
+     * (e.g. arrays, functions, objects, regexes, `new Number(0)`, and `new String('')`)
+     *
+     * @static
+     * @memberOf _
+     * @category Lang
+     * @param {*} value The value to check.
+     * @returns {boolean} Returns `true` if `value` is an object, else `false`.
+     * @example
+     *
+     * _.isObject({});
+     * // => true
+     *
+     * _.isObject([1, 2, 3]);
+     * // => true
+     *
+     * _.isObject(1);
+     * // => false
+     */
+    function isObject(value) {
+        // Avoid a V8 JIT bug in Chrome 19-20.
+        // See https://code.google.com/p/v8/issues/detail?id=2291 for more details.
+        var type = typeof value;
+        return !!value && (type == 'object' || type == 'function');
+    }
+
+    return debounce;
+
+})();
+
+module.exports = debounce;
+},{}],3:[function(require,module,exports){
+module.exports = function(opts, cy, debounce) {
+
+  var options = opts;
+  var oldSmallestX = 0;
+  var oldLargestX = 0;
+  var oldSmallestY = 0;
+  var oldLargestY = 0;
+
+  var changeOptions = function(opts) {
+    options = opts;
+  };
+
+  var offset = function(elt) {
+    var rect = elt.getBoundingClientRect();
+
+    return {
+      top: rect.top + document.documentElement.scrollTop,
+      left: rect.left + document.documentElement.scrollLeft
+    }
+  };
+
+  var $canvas = document.createElement('canvas');
+  var $container = cy.container();
+  var ctx = $canvas.getContext('2d');
+  $container.appendChild($canvas);
+
+  var resetCanvas = function() {
+    $canvas.height = 0;
+    $canvas.width = 0;
+    $canvas.style.position = 'absolute';
+    $canvas.style.top = 0;
+    $canvas.style.left = 0;
+    $canvas.style.zIndex = options.gridStackOrder;
+  };
+
+  resetCanvas();
+
+  var drawGrid = function() {
+    var zoom = cy.zoom();
+    var pan = cy.pan()
+    var smallestX = 0;
+    var largestX = 0;
+    var smallestY = 0;
+    var largestY = 0;
+    cy.nodes().forEach((node, index) => {
+      var width = node.outerWidth() / 2
+      var x = node.position("x")
+      var height = node.outerHeight() / 2
+      var y = node.position("y")
+
+      if (index === 0) {
+        smallestX = (x - (width))
+        largestX = (x + (width))
+        smallestY = (y - (height))
+        largestY = (y + (height))
+      }
+
+      if (smallestX > (x - (width))) {
+        smallestX = (x - (width))
+      } else if (largestX < (x + (width))) {
+        largestX = (x + (width))
+      }
+      if (smallestY > (y - (height))) {
+        smallestY = (y - (height))
+      } else if (largestY < (y + (height))) {
+        largestY = (y + (height))
+      }
+    })
+    var increment = options.gridSpacing * zoom;
+    var incrementSmall = options.gridSpacingSmall * zoom;
+    var pageSize = options.pageSize ?? 200;
+
+    largestX += (pageSize - (largestX % pageSize))
+    largestY += (pageSize - (largestY % pageSize))
+    smallestX -= (pageSize + smallestX % pageSize)
+    smallestY -= (pageSize + smallestY % pageSize)
+
+    largestX = largestX * zoom + pan.x
+    smallestX = smallestX * zoom + pan.x
+    largestY = largestY * zoom + pan.y
+    smallestY = smallestY * zoom + pan.y
+
+    ctx.strokeStyle = options.gridColor;
+    ctx.lineWidth = options.lineWidth;
+
+    if (
+      oldSmallestX !== smallestX ||
+      oldLargestX !== largestX ||
+      oldSmallestY !== smallestY ||
+      oldLargestY !== largestY
+    ) {
+      var width = cy.width();
+      var height = cy.height();
+
+      ctx.clearRect(0, 0, width, height);
+
+      oldSmallestX = smallestX;
+      oldLargestX = largestX;
+      oldSmallestY = smallestY;
+      oldLargestY = largestY;
+
+      for (var y = smallestY; y < largestY; y += increment) {
+        ctx.beginPath();
+        ctx.moveTo(smallestX, y);
+        ctx.lineTo(largestX, y);
+        ctx.stroke();
+      }
+
+      // Draw large vertical grid lines
+      for (var x = smallestX; x < largestX; x += increment) {
+        ctx.beginPath();
+        ctx.moveTo(x, smallestY);
+        ctx.lineTo(x, largestY);
+        ctx.stroke();
+      }
+
+      if (options.gridSpacingSmall > 0 && options.gridColorSmall) {
+        ctx.strokeStyle = options.gridColorSmall;
+        ctx.lineWidth = options.lineWidthSmall;
+
+        // Draw small horizontal grid lines
+        for (var y = smallestY; y < largestY; y += incrementSmall) {
+          ctx.beginPath();
+          ctx.moveTo(smallestX, y);
+          ctx.lineTo(largestX, y);
+          ctx.stroke();
+        }
+
+        // Draw small vertical grid lines
+        for (var x = smallestX; x < largestX; x += incrementSmall) {
+          ctx.beginPath();
+          ctx.moveTo(x, smallestY);
+          ctx.lineTo(x, largestY);
+          ctx.stroke();
+        }
+      }
+    }
+  };
+
+  var clearDrawing = function() {
+    // var width = cy.width();
+    // var height = cy.height();
+
+    // console.log("cleared")
+    // ctx.clearRect(0, 0, width, height);
+  };
+
+  var resizeCanvas = debounce(function() {
+    $canvas.height = cy.height();
+    $canvas.width = cy.width();
+    $canvas.style.position = 'absolute';
+    $canvas.style.top = 0;
+    $canvas.style.left = 0;
+    $canvas.style.zIndex = options.gridStackOrder;
+
+    setTimeout(function() {
+      $canvas.height = cy.height();
+      $canvas.width = cy.width();
+
+      var canvasBb = offset($canvas);
+      var containerBb = offset($container);
+      $canvas.style.top = -(canvasBb.top - containerBb.top);
+      $canvas.style.left = -(canvasBb.left - containerBb.left);
+      drawGrid();
+    }, 0);
+
+  }, 250);
+
+
+
+
+  return {
+    initCanvas: resizeCanvas,
+    resizeCanvas: resizeCanvas,
+    resetCanvas: resetCanvas,
+    clearCanvas: clearDrawing,
+    drawGrid: drawGrid,
+    changeOptions: changeOptions,
+    sizeCanvas: drawGrid
+  };
+};
+
+},{}],4:[function(require,module,exports){
+module.exports = function(cy, snap, resize, snapToGridDuringDrag, drawGrid, guidelines, parentPadding, opts) {
+
+  var feature = function(func) {
+    return function(enable) {
+      func(enable);
+    };
+  };
+
+  var controller = {
+    snapToGridDuringDrag: new feature(setDiscreteDrag),
+    resize: new feature(setResize),
+    snapToGridOnRelease: new feature(setSnapToGrid),
+    drawGrid: new feature(setDrawGrid),
+    guidelines: new feature(setGuidelines),
+    parentPadding: new feature(setParentPadding)
+  };
+
+  function applyToCyTarget(func, allowParent) {
+    return function(e) {
+      var cyTarget = e.target || e.cyTarget;
+      if (!cyTarget.is(":parent") || allowParent)
+        func(cyTarget);
+    }
+  }
+
+  function applyToAllNodesButNoParent(func) {
+    return function() {
+      cy.nodes().not(":parent").each(function(ele, i) {
+        if (typeof ele === "number") {
+          ele = i;
+        }
+
+        func(ele);
+      });
+    };
+  }
+  function applyToAllNodes(func) {
+    return function() {
+      cy.nodes().each(function(ele, i) {
+        if (typeof ele === "number") {
+          ele = i;
+        }
+
+        func(ele);
+      });
+    };
+  }
+
+  function eventStatus(enable) {
+    return enable ? "on" : "off";
+  }
+
+
+  // Discrete Drag
+  function setDiscreteDrag(enable) {
+    cy[eventStatus(enable)]("tapstart", "node", snapToGridDuringDrag.onTapStartNode);
+  }
+
+  // Resize
+  var resizeAllNodes = applyToAllNodes(resize.resizeNode);
+  var resizeNode = applyToCyTarget(resize.resizeNode);
+  var recoverAllNodeDimensions = applyToAllNodesButNoParent(resize.recoverNodeDimensions);
+
+  function setResize(enable) {
+    cy[eventStatus(enable)]("ready", resizeAllNodes);
+    cy[eventStatus(enable)]("drag", resizeAllNodes);
+    //  cy[eventStatus(enable)]("style", "node", resizeNode);
+    enable ? resizeAllNodes() : recoverAllNodeDimensions();
+  }
+
+  // Snap To Grid
+  var snapAllNodes = applyToAllNodes(snap.snapNodesTopDown);
+  var recoverSnapAllNodes = applyToAllNodes(snap.recoverSnapNode);
+  var snapCyTarget = applyToCyTarget(snap.snapNode, true);
+
+  function setSnapToGrid(enable) {
+    cy[eventStatus(enable)]("add", "node", snapCyTarget);
+    cy[eventStatus(enable)]("ready", snapAllNodes);
+
+    cy[eventStatus(enable)]("free", "node", snap.onFreeNode);
+
+    if (enable) {
+      snapAllNodes();
+    } else {
+      recoverSnapAllNodes();
+    }
+  }
+
+  // Draw Grid
+  var drawGridOnZoom = function() {
+    if (currentOptions.zoomDash) drawGrid.drawGrid()
+  };
+  var drawGridOnPan = function() {
+    if (currentOptions.panGrid) drawGrid.drawGrid()
+  };
+
+  function setDrawGrid(enable) {
+    cy[eventStatus(enable)]('drag', 'node', drawGrid.drawGrid);
+    cy[eventStatus(enable)]('pan', drawGridOnPan);
+    cy[eventStatus(enable)]('zoom', drawGridOnZoom);
+
+    if (enable) {
+      drawGrid.initCanvas();
+      cy.on('resize', drawGrid.resizeCanvas);
+    } else {
+      // drawGrid.clearCanvas();
+      drawGrid.resetCanvas();
+      cy.off('resize', drawGrid.resizeCanvas);
+    }
+  }
+
+  // Guidelines
+  var activeTopMostNodes = null;
+  var guidelinesGrabHandler = function(e) {
+    var cyTarget = e.target || e.cyTarget;
+    var nodes = cyTarget.selected() ? e.cy.$(":selected") : cyTarget;
+    activeTopMostNodes = guidelines.getTopMostNodes(nodes.nodes());
+    guidelines.lines.init(activeTopMostNodes);
+  }
+  var guidelinesDragHandler = function(e) {
+    if (this.id() == activeTopMostNodes.id()) {
+      guidelines.lines.update(activeTopMostNodes);
+
+      if (currentOptions.snapToAlignmentLocationDuringDrag)
+        guidelines.lines.snapToAlignmentLocation(activeTopMostNodes);
+    }
+  };
+  var guidelinesFreeHandler = function(e) {
+    if (currentOptions.snapToAlignmentLocationOnRelease)
+      guidelines.lines.snapToAlignmentLocation(activeTopMostNodes);
+
+    guidelines.lines.destroy();
+    activeTopMostNodes = null;
+  };
+  var guidelinesWindowResizeHandler = function(e) {
+    guidelines.lines.resize();
+  };
+  var guidelinesTapHandler = function(e) {
+    guidelines.getMousePos(e);
+  };
+  var guidelinesPanHandler = function(e) {
+    if (activeTopMostNodes) {
+      guidelines.setMousePos(cy.pan());
+      guidelines.lines.init(activeTopMostNodes);
+    }
+  }
+  function setGuidelines(enable) {
+    if (enable) {
+      guidelines.resizeCanvas();
+      cy.on("tapstart", "node", guidelinesTapHandler);
+      cy.on("grab", guidelinesGrabHandler);
+      cy.on("pan", guidelinesPanHandler);
+      cy.on("drag", "node", guidelinesDragHandler);
+      cy.on("free", guidelinesFreeHandler);
+      window.addEventListener('resize', guidelinesWindowResizeHandler);
+    }
+    else {
+      cy.off("tapstart", "node", guidelinesTapHandler);
+      cy.off("grab", guidelinesGrabHandler);
+      cy.off("pan", guidelinesPanHandler);
+      cy.off("drag", "node", guidelinesDragHandler);
+      cy.off("free", guidelinesFreeHandler);
+      guidelines.resetCanvas();
+      window.removeEventListener('resize', guidelinesWindowResizeHandler);
+    }
+  }
+
+  // Parent Padding
+  var setAllParentPaddings = function(enable) {
+    parentPadding.setPaddingOfParent(cy.nodes(":parent"), enable);
+  };
+  var enableParentPadding = function(node) {
+    parentPadding.setPaddingOfParent(node, true);
+  };
+
+
+  function setParentPadding(enable) {
+
+    setAllParentPaddings(enable);
+
+    cy[eventStatus(enable)]('ready', setAllParentPaddings);
+    cy[eventStatus(enable)]("add", "node:parent", applyToCyTarget(enableParentPadding, true));
+  }
+
+  // Sync with options: Enables/disables changed via options.
+  var latestOptions = {};
+  var currentOptions;
+
+  var specialOpts = {
+    drawGrid: ["gridSpacing", "zoomDash", "panGrid", "gridStackOrder", "gridColor", "lineWidth", "lineDash"],
+    guidelines: ["gridSpacing", "guidelinesStackOrder", "guidelinesTolerance", "guidelinesStyle", "distributionGuidelines", "range", "minDistRange", "geometricGuidelineRange"],
+    resize: ["gridSpacing"],
+    parentPadding: ["gridSpacing", "parentSpacing"],
+    snapToGridOnRelease: ["gridSpacing", "snapToGridCenter"]
+  };
+
+  function syncWithOptions(options) {
+    currentOptions = Object.extend({}, options);
+    options.guidelines = options.initPosAlignment || options.distributionGuidelines || options.geometricGuideline;
+    for (var key in options)
+      if (latestOptions[key] != options[key])
+        if (controller.hasOwnProperty(key)) {
+          controller[key](options[key]);
+        } else {
+          for (var optsKey in specialOpts) {
+            var opts = specialOpts[optsKey];
+            if (opts.indexOf(key) >= 0) {
+              if (optsKey == "drawGrid") {
+                drawGrid.changeOptions(options);
+                if (options.drawGrid)
+                  drawGrid.resizeCanvas();
+              }
+
+              if (optsKey == "snapToGridOnRelease") {
+                snap.changeOptions(options);
+                if (options.snapToGridOnRelease)
+                  snapAllNodes();
+              }
+
+              if (optsKey == "guidelines")
+                guidelines.changeOptions(options);
+
+              if (optsKey == "resize") {
+                resize.changeOptions(options);
+                if (options.resize)
+                  resizeAllNodes();
+              }
+
+              if (optsKey == "parentPadding")
+                parentPadding.changeOptions(options);
+
+
+            }
+          }
+        }
+    latestOptions = Object.extend({}, latestOptions, options);
+  }
+
+  return {
+    init: syncWithOptions,
+    syncWithOptions: syncWithOptions
+  };
+
+};
+
+},{}],5:[function(require,module,exports){
+/**
+ * Deep copy or merge objects - replacement for jQuery deep extend
+ * Taken from http://youmightnotneedjquery.com/#deep_extend
+ * and bug related to deep copy of Arrays is fixed.
+ * Usage:Object.extend({}, objA, objB)
+ */
+
+Object.extend = function(out) {
+	out = out || {};
+
+	for (var i = 1; i < arguments.length; i++) {
+		var obj = arguments[i];
+
+		if (!obj)
+			continue;
+
+		for (var key in obj) {
+			if (obj.hasOwnProperty(key)) {
+				if (Array.isArray(obj[key])) {
+					out[key] = obj[key].slice();
+				} else if (typeof obj[key] === 'object') {
+					out[key] = Object.extend(out[key], obj[key]);
+				} else {
+					out[key] = obj[key];
+				}
+			}
+		}
+	}
+
+	return out;
+};
+
+},{}],6:[function(require,module,exports){
+module.exports = function (opts, cy, debounce) {
+
+
+	var RBTree = require("functional-red-black-tree");
+
+	var options = opts;
+
+	var changeOptions = function (opts) {
+		options = opts;
+
+		// RBTree always returns null, when low == high
+		// to avoid this:
+		if (options.guidelinesTolerance == 0)
+			options.guidelinesTolerance = 0.001;
+	};
+
+	var offset = function(elt) {
+		var rect = elt.getBoundingClientRect();
+
+		return {
+			top: rect.top + document.documentElement.scrollTop,
+			left: rect.left + document.documentElement.scrollLeft
+		}
+	};
+
+	var getCyScratch = function () {
+		var sc = cy.scratch("_guidelines");
+		if (!sc)
+			sc = cy.scratch("_guidelines", {});
+
+		return sc;
+	};
+
+	/* Resize canvas */
+	var resizeCanvas = debounce(function () {
+		// clearDrawing();
+		$canvas.height = cy.height();
+		$canvas.width = cy.width();
+		$canvas.style.position = 'absolute';
+		$canvas.style.top = 0;
+		$canvas.style.left = 0;
+		$canvas.style.zIndex = options.guidelinesStackOrder;
+
+		setTimeout(function () {
+
+			$canvas.height = cy.height();
+			$canvas.width = cy.width();
+
+			var canvasBb = offset($canvas);
+			var containerBb = offset($container);
+			$canvas.style.top = -(canvasBb.top - containerBb.top);
+			$canvas.style.left = -(canvasBb.left - containerBb.left);
+		}, 0);
+	}, 250);
+
+	/* Clear canvas */
+	var clearDrawing = function () {
+		var width = cy.width();
+		var height = cy.height();
+		// ctx.clearRect(0, 0, width, height);
+	};
+
+	/* Create a canvas */
+	var $canvas = document.createElement('canvas');
+	var $container = cy.container();
+	var ctx = $canvas.getContext('2d');
+	$container.appendChild( $canvas );
+
+	var resetCanvas = function () {
+		$canvas.height = 0;
+		$canvas.width = 0;
+		$canvas.style.position = 'absolute';
+		$canvas.style.top = 0;
+		$canvas.style.left = 0;
+		$canvas.style.zIndex = options.guidelinesStackOrder;
+	};
+
+	resetCanvas();
+
+	/* Global variables */
+	var VTree = null;
+	var HTree = null;
+	var nodeInitPos;
+	var excludedNodes;
+	var lines = {};
+	var panInitPos = {};
+	var alignedLocations = {"h" : null, "v" : null};
+
+	/**
+	 * Get positions of sides of a node
+	 * @param node : a node
+	 * @return : object of positions
+	 */ 
+	lines.getDims = function (node) {
+		var pos = node.renderedPosition();
+		var width = node.renderedWidth();
+		var height = node.renderedHeight();
+		var padding = {
+			left: Number(node.renderedStyle("padding-left").replace("px", "")),
+			right: Number(node.renderedStyle("padding-right").replace("px", "")),
+			top: Number(node.renderedStyle("padding-top").replace("px", "")),
+			bottom: Number(node.renderedStyle("padding-bottom").replace("px", ""))
+		};
+
+		return {
+			horizontal: {
+				center: (pos.x),
+				left: Math.round(pos.x - (padding.left + width / 2)),
+				right: Math.round(pos.x + (padding.right + width / 2))
+			},
+			vertical: {
+				center: (pos.y),
+				top: Math.round(pos.y - (padding.top + height / 2)),
+				bottom: Math.round(pos.y + (padding.bottom + height / 2))
+			}
+		};
+	};
+
+	/**
+	 * Initialize trees and initial position of node
+	 * @param activeNodes : top most active nodes
+	 */
+	lines.init = function (activeNodes) {
+		VTree = RBTree();
+		HTree = RBTree();
+		// TODO: seperate initialization of nodeInitPos
+		// not necessary to init trees when geometric and distribution alignments are disabled,
+		// but reference guideline is enables
+		if (!nodeInitPos){
+			panInitPos.x = cy.pan("x"); panInitPos.y = cy.pan("y");
+			nodeInitPos = activeNodes.renderedPosition();
+		}
+
+		var nodes = cy.nodes(":visible");
+		excludedNodes = activeNodes.union(activeNodes.ancestors());
+		excludedNodes = excludedNodes.union(activeNodes.descendants());
+		nodes.not(excludedNodes).each(function (node, i) {
+			if(typeof node === "number") {
+				node = i;
+			}
+			var dims = lines.getDims(node);
+
+			["left", "center", "right"].forEach(function (val) {
+				var hKey = dims.horizontal[val];
+				if (HTree.get(hKey))
+					HTree.get(hKey).push(node);
+				else
+					HTree = HTree.insert(hKey, [node]);
+			});
+
+			["top", "center", "bottom"].forEach(function (val) {
+				var vKey = dims.vertical[val];
+				if (VTree.get(vKey))
+					VTree.get(vKey).push(node);
+				else
+					VTree = VTree.insert(vKey, [node]);
+			});
+
+		});
+		ctx.lineWidth=options.lineWidth;
+		lines.update(activeNodes);
+	};
+
+	/* Destroy gobal variables */
+	lines.destroy = function () {
+		// lines.clear();
+		VTree = null; HTree = null;
+		nodeInitPos = null;
+		mouseInitPos = {};
+		alignedLocations = {"h" : null, "v" : null};
+		if (nodeToAlign){
+			nodeToAlign.unlock();
+			nodeToAlign = undefined;
+		}
+	};
+
+	lines.clear = clearDrawing;
+
+	/**
+	 * Draw straight line
+	 * @param from : initial position
+	 * @param to : final position
+	 * @param color : color of the line
+	 * @param lineStyle : whether line is solid or dashed
+	 */
+	lines.drawLine = function (from, to, color, lineStyle) {
+		ctx.setLineDash(lineStyle);
+		ctx.beginPath();
+		ctx.moveTo(from.x, from.y);
+		ctx.lineTo(to.x, to.y);
+		ctx.strokeStyle = color;
+		ctx.stroke();
+	};
+
+	/**
+	 * Draw an arrow
+	 * @param position : position of the arrow
+	 * @param type : type/directşon of the arrow
+	 */
+	lines.drawArrow = function(position, type){
+		if (type == "right"){
+			// right arrow
+			ctx.setLineDash([]);	
+			ctx.beginPath();
+			ctx.moveTo(position.x-5, position.y-5);
+			ctx.lineTo(position.x, position.y);
+			ctx.lineTo(position.x-5, position.y+5);
+			ctx.stroke();
+		}
+		else if (type == "left"){
+			// left arrow
+			ctx.setLineDash([]);	
+			ctx.beginPath();
+			ctx.moveTo(position.x+5, position.y-5);
+			ctx.lineTo(position.x, position.y);
+			ctx.lineTo(position.x+5, position.y+5);
+			ctx.stroke();
+		}
+		else if (type == "top"){
+			// up arrow
+			ctx.setLineDash([]);	
+			ctx.beginPath();
+			ctx.moveTo(position.x-5, position.y+5);
+			ctx.lineTo(position.x, position.y);
+			ctx.lineTo(position.x+5, position.y+5);
+			ctx.stroke();
+		}
+		else if (type == "bottom"){
+			// down arrow
+			ctx.setLineDash([]);	
+			ctx.beginPath();
+			ctx.moveTo(position.x-5, position.y-5);
+			ctx.lineTo(position.x, position.y);
+			ctx.lineTo(position.x+5, position.y-5);
+			ctx.stroke();
+		}
+
+	}
+
+	/**
+	 * Draw a cross - x
+	 * @param position : position of the cross
+	 */
+	lines.drawCross = function(position){
+		ctx.setLineDash([]);	
+		ctx.beginPath();
+		ctx.moveTo(position.x - 5, position.y + 5);
+		ctx.lineTo(position.x + 5, position.y - 5);
+		ctx.moveTo(position.x - 5, position.y - 5);
+		ctx.lineTo(position.x + 5, position.y + 5);
+		ctx.stroke();
+	};
+
+	/**
+	 * Calculate the amount of offset for distribution guidelines
+	 * @param nodes - list of nodes
+	 * @param type - horizontal or vertical
+	 */
+	var calculateOffset = function(nodes, type){
+		var minNode = nodes[0], min = lines.getDims(minNode)[type]["center"];
+		var maxNode = nodes[0], max = lines.getDims(maxNode)[type]["center"];
+
+		for (var i = 0; i < nodes.length; i++){
+			var node = nodes[i];
+			if (lines.getDims(node)[type]["center"] < min){
+				min = lines.getDims(node)[type]["center"]; minNode = node;
+			}
+			if (lines.getDims(node)[type]["center"] > max){
+				max = lines.getDims(node)[type]["center"]; maxNode = node;
+			}
+		}
+
+		if (type == "horizontal")
+			var offset = (min + max) / 2 < lines.getDims(nodes[1])[type]["center"] ? max + (0.5*maxNode.width() + options.guidelinesStyle.distGuidelineOffset)*cy.zoom() : min - (0.5*minNode.width() + options.guidelinesStyle.distGuidelineOffset)*cy.zoom();
+		else
+			var offset = (min + max) / 2 < lines.getDims(nodes[1])[type]["center"] ? max + (0.5*maxNode.height() + options.guidelinesStyle.distGuidelineOffset)*cy.zoom() : min - (0.5*minNode.height() + options.guidelinesStyle.distGuidelineOffset)*cy.zoom();
+
+		return offset;
+	}
+	/** Guidelines for horizontally distributed alignment
+	 * @param: node the node to be aligned
+	 */
+	lines.horizontalDistribution = function(node){
+		// variables
+		var leftNode = null, rightNode = null;
+		var nodeDim = lines.getDims(node);
+		var Xcenter = nodeDim["horizontal"]["center"];
+		var Ycenter = nodeDim["vertical"]["center"];
+		// Find nodes in range and check if they align
+		HTree.forEach(function(key, nodes){
+
+			for (var i = 0; i < nodes.length; i++){
+				var left = nodes[i];
+				var leftDim = lines.getDims(left);
+				if (Math.abs(leftDim["vertical"]["center"] - nodeDim["vertical"]["center"]) < options.guidelinesStyle.range*cy.zoom()){
+					if ((leftDim["horizontal"]["right"]) == key && 
+						nodeDim["horizontal"]["left"] - leftDim["horizontal"]["right"] > options.guidelinesStyle.minDistRange){
+						var ripo = Math.round(2*Xcenter)-key;
+						HTree.forEach(function($, rightNodes){
+							for (var j = 0; j < rightNodes.length; j++){
+								var right = rightNodes[j];
+								if (Math.abs(lines.getDims(right)["vertical"]["center"] - Ycenter) < options.guidelinesStyle.range*cy.zoom()){
+									if (Math.abs(ripo - lines.getDims(right)["horizontal"]["left"]) < 2*options.guidelinesTolerance){
+										leftNode = left; rightNode = right;
+									}
+								}
+							}
+						}, ripo - options.guidelinesTolerance, ripo + options.guidelinesTolerance);
+					}
+				}
+			}
+		}, Xcenter - options.guidelinesStyle.range*cy.zoom(), Xcenter);
+
+		// Draw the lines
+		if (leftNode){
+			alignedLocations.hd = Xcenter - (lines.getDims(rightNode)["horizontal"]["left"] + lines.getDims(leftNode)["horizontal"]["right"]) / 2.0;
+			if (!options.geometricGuideline || alignedLocations.h == null || Math.abs(alignedLocations.h) > Math.abs(alignedLocations.hd)){
+				alignedLocations.h = alignedLocations.hd;
+			}
+			var offset = calculateOffset([leftNode, node, rightNode], "vertical");
+
+			lines.drawLine({
+				x: lines.getDims(leftNode)["horizontal"]["right"],
+				y: offset
+			}, {
+				x: nodeDim["horizontal"]["left"],
+				y: offset
+			}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
+
+			lines.drawLine({
+				x: lines.getDims(rightNode)["horizontal"]["left"],
+				y: offset
+			}, {
+				x: nodeDim["horizontal"]["right"],
+				y: offset
+			}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
+
+			lines.drawLine({
+				x: lines.getDims(leftNode)["horizontal"]["right"],
+				y: offset
+			}, {
+				x: lines.getDims(leftNode)["horizontal"]["right"],
+				y: lines.getDims(leftNode)["vertical"]["center"]
+			}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
+
+			lines.drawLine({
+				x: lines.getDims(rightNode)["horizontal"]["left"],
+				y: offset
+			}, {
+				x: lines.getDims(rightNode)["horizontal"]["left"],
+				y: lines.getDims(rightNode)["vertical"]["center"]
+			}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
+
+			lines.drawLine({
+				x: nodeDim["horizontal"]["left"],
+				y: offset
+			}, {
+				x: nodeDim["horizontal"]["left"],
+				y: Ycenter
+			}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
+
+			lines.drawLine({
+				x: nodeDim["horizontal"]["right"],
+				y: offset
+			}, {
+				x: nodeDim["horizontal"]["right"],
+				y: Ycenter
+			}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
+
+			lines.drawArrow({
+				x: lines.getDims(leftNode)["horizontal"]["right"],
+				y: offset}, "left");
+
+			lines.drawArrow({
+				x: nodeDim["horizontal"]["left"],
+				y: offset}, "right");
+
+			lines.drawArrow({
+				x: nodeDim["horizontal"]["right"],
+				y: offset}, "left");
+
+			lines.drawArrow({
+				x: lines.getDims(rightNode)["horizontal"]["left"],
+				y: offset}, "right");
+
+		}
+		else{
+			var state = lines.horizontalDistributionNext(node,"left" );
+
+			if (!state)  
+				lines.horizontalDistributionNext(node,"right" );
+		}
+	}
+
+	/** Guidelines for horizontally distributed alignment
+	 * @param: node the node to be aligned
+	 */
+	lines.verticalDistribution = function(node){
+		// variables
+		var belowNode = null, aboveNode = null;
+		var nodeDim = lines.getDims(node);
+		var Xcenter = nodeDim["horizontal"]["center"];
+		var Ycenter = nodeDim["vertical"]["center"];
+		// Find nodes in range and check if they align
+		VTree.forEach(function(key, nodes){
+
+			for (var i = 0; i < nodes.length; i++){
+				var below = nodes[i];
+				var belowDim = lines.getDims(below);
+				if (Math.abs(belowDim["horizontal"]["center"] - nodeDim["horizontal"]["center"]) < options.guidelinesStyle.range*cy.zoom()){
+					if (belowDim["vertical"]["bottom"] == key &&
+						nodeDim["vertical"]["top"] - belowDim["vertical"]["bottom"] > options.guidelinesStyle.minDistRange){
+						var abpo = Math.round((2*Ycenter)-key);
+						VTree.forEach(function($, aboveNodes){
+							//if (aboveNodes){
+							for (var j = 0; j < aboveNodes.length; j++){
+								var above = aboveNodes[j];
+								if (Math.abs(lines.getDims(above)["horizontal"]["center"] - Xcenter) < options.guidelinesStyle.range*cy.zoom()){
+									if (Math.abs(abpo - lines.getDims(above)["vertical"]["top"]) < 2*options.guidelinesTolerance){
+										belowNode = below; aboveNode = above;
+									}
+								}
+							}
+							//}
+						}, abpo - options.guidelinesTolerance, abpo + options.guidelinesTolerance);
+					}
+				}
+			}
+		}, Ycenter - options.guidelinesStyle.range*cy.zoom(), Ycenter);
+
+		if (belowNode){
+			alignedLocations.vd = Ycenter - (lines.getDims(belowNode)["vertical"]["bottom"] + lines.getDims(aboveNode)["vertical"]["top"]) / 2.0;
+			if (!options.geometricGuideline || alignedLocations.v == null || Math.abs(alignedLocations.v) > Math.abs(alignedLocations.vd)){
+				alignedLocations.v = alignedLocations.vd;
+			}
+			var offset = calculateOffset([belowNode, node, aboveNode], "horizontal");
+			lines.drawLine({
+				y: lines.getDims(belowNode)["vertical"]["bottom"],//renderedPosition("x"),
+				x: offset
+			}, {
+				y: nodeDim["vertical"]["top"],
+				x: offset
+			}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
+
+			lines.drawLine({
+				y: lines.getDims(aboveNode)["vertical"]["top"],//renderedPosition("x"),
+				x: offset
+			}, {
+				y: nodeDim["vertical"]["bottom"],
+				x: offset
+			}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
+
+			lines.drawLine({
+				y: lines.getDims(belowNode)["vertical"]["bottom"],//renderedPosition("x"),
+				x: offset
+			}, {
+				y: lines.getDims(belowNode)["vertical"]["bottom"],
+				x: lines.getDims(belowNode)["horizontal"]["center"]
+			}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
+
+			lines.drawLine({
+				y: lines.getDims(aboveNode)["vertical"]["top"],//renderedPosition("x"),
+				x: offset
+			}, {
+				y: lines.getDims(aboveNode)["vertical"]["top"],
+				x: lines.getDims(aboveNode)["horizontal"]["center"]
+			}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
+
+			lines.drawLine({
+				y: nodeDim["vertical"]["bottom"],//renderedPosition("x"),
+				x: offset
+			}, {
+				y: nodeDim["vertical"]["bottom"],//renderedPosition("x"),
+				x: Xcenter
+			}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
+
+			lines.drawLine({
+				y: nodeDim["vertical"]["top"],//renderedPosition("x"),
+				x: offset
+			}, {
+				y: nodeDim["vertical"]["top"],//renderedPosition("x"),
+				x: Xcenter
+			}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
+
+			lines.drawArrow({
+				x: offset,
+				y: lines.getDims(belowNode)["vertical"]["bottom"]}, "top");
+
+			lines.drawArrow({
+				x: offset,
+				y: nodeDim["vertical"]["top"]}, "bottom");
+
+			lines.drawArrow({
+				x: offset,
+				y: lines.getDims(aboveNode)["vertical"]["top"]}, "bottom");
+
+			lines.drawArrow({
+				x: offset,
+				y: nodeDim["vertical"]["bottom"]}, "top");
+		}
+		else{
+			var state = lines.verticalDistributionNext(node,"below" );
+
+			if (!state)  
+				lines.verticalDistributionNext(node,"above" );
+		}
+	}    
+
+	/**
+	 * Find geometric alignment lines and draw them
+	 * @param type: horizontal or vertical
+	 * @param node: the node to be aligned
+	 */
+	lines.searchForLine = function (type, node) {
+
+		// variables
+		var position, target, center, axis, otherAxis, Tree, closestKey;
+		var dims = lines.getDims(node)[type];
+		var targetKey = Number.MAX_SAFE_INTEGER;
+
+		// initialize Tree
+		if ( type == "horizontal"){
+			Tree = HTree;
+			axis = "y";
+			otherAxis = "x";
+			alignedLocations.h = null;
+		} else{
+			Tree = VTree;
+			axis = "x";
+			otherAxis = "y";
+			alignedLocations.v = null;
+		}
+
+		center = node.renderedPosition(axis);
+		// check if node aligned in any dimension:
+		// {center, left, right} or {center, top, bottom}
+		for (var dimKey in dims) {
+			position = dims[dimKey];
+
+			// find the closest alignment in range of tolerance
+			Tree.forEach(function (exKey, nodes) {
+				for (var i = 0; i < nodes.length; i++){
+					var n = nodes[i];
+					if (options.centerToEdgeAlignment || (dimKey != "center" && n.renderedPosition(otherAxis) != exKey) || (dimKey == "center" && n.renderedPosition(otherAxis) == exKey)){
+						var dif = Math.abs(center - n.renderedPosition(axis));
+						if ( dif < targetKey && dif < options.guidelinesStyle.geometricGuidelineRange*cy.zoom()){
+							target = n;
+							targetKey = dif;
+							closestKey = exKey;
+						}
+					}
+				}
+			}, position - Number(options.guidelinesTolerance), position + Number(options.guidelinesTolerance));
+
+			// if alignment found, draw lines and break
+			if (target) {
+				targetKey = lines.getDims(node)[type][dimKey];
+
+				// Draw horizontal or vertical alignment line
+				if (type == "horizontal") {
+					alignedLocations.h = targetKey - closestKey;
+					lines.drawLine({
+						x: targetKey,
+						y: node.renderedPosition("y")
+					}, {
+						x: targetKey,
+						y: target.renderedPosition("y")
+					}, options.guidelinesStyle.strokeStyle, options.guidelinesStyle.lineDash);
+				} else {
+					alignedLocations.v = targetKey - closestKey;
+					lines.drawLine({
+						x: node.renderedPosition("x"),
+						y: targetKey
+					}, {
+						x: target.renderedPosition("x"),
+						y: targetKey
+					}, options.guidelinesStyle.strokeStyle, options.guidelinesStyle.lineDash);
+				}
+				break;
+			}
+		}
+	};
+
+	lines.horizontalDistributionNext = function(node, type){
+
+		// variables
+		var leftNode = null, rightNode = null;
+		var nodeDim = lines.getDims(node);
+		var Xcenter = nodeDim["horizontal"]["center"];
+		var Ycenter = nodeDim["vertical"]["center"];
+		var side = "right", otherSide = "left";
+		var lowerBound = Xcenter;
+		if (type == "left"){
+			side = "left"; otherSide = "right";
+			var lowerBound = Xcenter - options.guidelinesStyle.range*cy.zoom();
+		}
+
+		var compare = {
+			"left": function (x, y) { return y - x > options.guidelinesStyle.minDistRange},
+			"right": function (x, y) { return x - y > options.guidelinesStyle.minDistRange}
+		}
+
+		// Find nodes in range and check if they align
+		HTree.forEach(function(key, nodes){
+			for (var i = 0; i < nodes.length; i++){
+				var left = nodes[i];
+				var leftDim = lines.getDims(left);
+				if (Math.abs(leftDim["vertical"]["center"] - nodeDim["vertical"]["center"]) < options.guidelinesStyle.range*cy.zoom()){
+					if ((leftDim["horizontal"][otherSide]) == key && 
+						compare[type](leftDim["horizontal"][otherSide], nodeDim["horizontal"][side])){
+						var ll = leftDim["horizontal"][side]-(nodeDim["horizontal"][side] - key);
+						HTree.forEach(function($, rightNodes){
+							for (var j = 0; j < rightNodes.length; j++){
+								var right = rightNodes[j];
+								if (Math.abs(lines.getDims(right)["vertical"]["center"] - Ycenter) < options.guidelinesStyle.range*cy.zoom()){
+									if (Math.abs(ll - lines.getDims(right)["horizontal"][otherSide]) < 2*options.guidelinesTolerance){
+										leftNode = left; rightNode = right;
+									}
+								}
+							}
+						}, ll - options.guidelinesTolerance, ll + options.guidelinesTolerance);
+					}
+				}
+			}
+		}, lowerBound, lowerBound + options.guidelinesStyle.range*cy.zoom());
+
+		// Draw the lines
+		if (leftNode){
+			alignedLocations.hd =(lines.getDims(node)["horizontal"][side] - lines.getDims(leftNode)["horizontal"][otherSide]) - (lines.getDims(leftNode)["horizontal"][side] - lines.getDims(rightNode)["horizontal"][otherSide]);
+			if (!options.geometricGuideline || alignedLocations.h == null || Math.abs(alignedLocations.h) > Math.abs(alignedLocations.hd)){
+				alignedLocations.h = alignedLocations.hd;
+			}
+
+			lines.drawDH(node, leftNode, rightNode, type);
+			return true;
+		}
+		else if (!options.geometricGuideline){
+			alignedLocations.h = null;
+		}
+		return false;
+
+	}
+
+	lines.drawDH = function(node, leftNode, rightNode, type){
+		var Ycenter = lines.getDims(node)["vertical"]["center"];
+		var side = "right", otherSide = "left";
+		if (type == "left"){
+			side = "left"; otherSide = "right";
+		}
+		var offset = calculateOffset([leftNode, node, rightNode], "vertical");
+
+		lines.drawLine({
+			x: lines.getDims(leftNode)["horizontal"][otherSide],
+			y: offset
+		}, {
+			x: lines.getDims(node)["horizontal"][side],
+			y: offset
+		}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
+
+		lines.drawLine({
+			x: lines.getDims(node)["horizontal"][side],
+			y: offset
+		}, {
+			x: lines.getDims(node)["horizontal"][side],
+			y: Ycenter,//lines.getDims(leftNode)["vertical"]["center"]
+		}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
+
+		lines.drawLine({
+			x: lines.getDims(rightNode)["horizontal"][otherSide],
+			y: offset
+		}, {
+			x: lines.getDims(leftNode)["horizontal"][side],
+			y: offset
+		}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
+		lines.drawLine({
+			x: lines.getDims(rightNode)["horizontal"][otherSide],
+			y: offset
+		}, {
+			x: lines.getDims(rightNode)["horizontal"][otherSide],
+			y: lines.getDims(rightNode)["vertical"]["center"]
+		}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
+
+		lines.drawLine({
+			x: lines.getDims(leftNode)["horizontal"][otherSide],
+			y: offset
+		}, {
+			x: lines.getDims(leftNode)["horizontal"][otherSide],
+			y: lines.getDims(leftNode)["vertical"]["center"]
+		}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
+
+		lines.drawLine({
+			x: lines.getDims(leftNode)["horizontal"][side],
+			y: offset
+		}, {
+			x: lines.getDims(leftNode)["horizontal"][side],
+			y: lines.getDims(leftNode)["vertical"]["center"]
+		}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
+
+
+		lines.drawArrow({
+			x: lines.getDims(node)["horizontal"][side],
+			y: offset}, otherSide);
+
+		lines.drawArrow({
+			x: lines.getDims(leftNode)["horizontal"][otherSide],
+			y: offset}, side);
+
+		lines.drawArrow({
+			x: lines.getDims(leftNode)["horizontal"][side],
+			y: offset}, otherSide);
+
+		lines.drawArrow({
+			x: lines.getDims(rightNode)["horizontal"][otherSide],
+			y: offset}, side);
+
+	}
+
+	lines.verticalDistributionNext = function(node, type){
+		// variables
+		var belowNode = null, aboveNode = null;
+		var nodeDim = lines.getDims(node);
+		var Xcenter = nodeDim["horizontal"]["center"];
+		var Ycenter = nodeDim["vertical"]["center"];
+		var side = "top", otherSide = "bottom";
+		var lowerBound = Ycenter - options.guidelinesStyle.range*cy.zoom();
+		if (type == "above"){
+			side = "bottom"; otherSide = "top";
+			lowerBound = Ycenter;
+		}
+
+		var compare = {
+			"below": function (x, y) { return y - x > options.guidelinesStyle.minDistRange},
+			"above": function (x, y) { return x - y > options.guidelinesStyle.minDistRange}
+		}
+		// Find nodes in range and check if they align
+		VTree.forEach(function(key, nodes){
+			for (var i = 0; i < nodes.length; i++){
+				var below = nodes[i];
+				var belowDim = lines.getDims(below);
+				if (Math.abs(belowDim["horizontal"]["center"] - nodeDim["horizontal"]["center"]) < options.guidelinesStyle.range*cy.zoom()){
+					if (belowDim["vertical"][otherSide] == key &&
+						compare[type](belowDim["vertical"][otherSide], nodeDim["vertical"][side])){
+						var ll = belowDim["vertical"][side]-(nodeDim["vertical"][side]-key);
+						VTree.forEach(function($, aboveNodes){
+							for (var j = 0; j < aboveNodes.length; j++){
+								var above = aboveNodes[j];
+								if (Math.abs(lines.getDims(above)["horizontal"]["center"] - Xcenter) < options.guidelinesStyle.range*cy.zoom()){
+									if (Math.abs(ll - lines.getDims(above)["vertical"][otherSide]) < 2*options.guidelinesTolerance){
+										belowNode = below; aboveNode = above;
+									}
+								}
+							}
+						}, ll - options.guidelinesTolerance, ll + options.guidelinesTolerance);
+					}
+				}
+			}
+		}, lowerBound, lowerBound+options.guidelinesStyle.range*cy.zoom());
+
+		if (belowNode){
+			alignedLocations.vd =(lines.getDims(node)["vertical"][side] - lines.getDims(belowNode)["vertical"][otherSide]) - (lines.getDims(belowNode)["vertical"][side] - lines.getDims(aboveNode)["vertical"][otherSide]);
+			if (!options.geometricGuideline || alignedLocations.v == null || Math.abs(alignedLocations.v) > Math.abs(alignedLocations.vd)){
+				alignedLocations.v = alignedLocations.vd;
+			}
+			lines.drawDV(node, belowNode, aboveNode, type);
+			return true;
+		}
+		else if (!options.geometricGuideline){
+			alignedLocations.v = null;
+		}
+		return false;
+	}
+
+
+
+	lines.drawDV = function(node, belowNode, aboveNode, type){
+		var nodeDim = lines.getDims(node);
+		var Xcenter = nodeDim["horizontal"]["center"];
+		var side = "top", otherSide = "bottom";
+		if (type == "above"){
+			side = "bottom"; otherSide = "top";
+		}
+
+		var offset = calculateOffset([belowNode, node, aboveNode], "horizontal");
+		lines.drawLine({
+			x: offset,
+			y: nodeDim["vertical"][side]
+		}, {
+			x: offset,
+			y: lines.getDims(belowNode)["vertical"][otherSide]
+		}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
+
+		lines.drawLine({
+			x: offset,
+			y: lines.getDims(belowNode)["vertical"][side]
+		}, {
+			x: offset,
+			y: lines.getDims(aboveNode)["vertical"][otherSide]
+		}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
+
+		lines.drawLine({
+			x: Xcenter,
+			y: nodeDim["vertical"][side]
+		}, {
+			x: offset,
+			y: nodeDim["vertical"][side]
+		}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
+
+		lines.drawLine({
+			x: lines.getDims(belowNode)["horizontal"]["center"],
+			y: lines.getDims(belowNode)["vertical"][otherSide]
+		}, {
+			x: offset,
+			y: lines.getDims(belowNode)["vertical"][otherSide]
+		}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
+
+		lines.drawLine({
+			x: lines.getDims(belowNode)["horizontal"]["center"],
+			y: lines.getDims(belowNode)["vertical"][side]
+		}, {
+			x: offset,
+			y: lines.getDims(belowNode)["vertical"][side]
+		}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
+
+		lines.drawLine({
+			x: offset,//lines.getDims(aboveNode)["horizontal"]["center"],
+			y: lines.getDims(aboveNode)["vertical"][otherSide]
+		}, {
+			x: lines.getDims(aboveNode)["horizontal"]["center"],
+			y: lines.getDims(aboveNode)["vertical"][otherSide]
+		}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
+
+		lines.drawArrow({
+			x: offset,
+			y: nodeDim["vertical"][side]}, otherSide);
+
+		lines.drawArrow({
+			x: offset,
+			y: lines.getDims(belowNode)["vertical"][otherSide]}, side);
+
+		lines.drawArrow({
+			x: offset,
+			y: lines.getDims(belowNode)["vertical"][side]}, otherSide);
+
+		lines.drawArrow({
+			x: offset,
+			y: lines.getDims(aboveNode)["vertical"][otherSide]}, side);
+
+	}
+	lines.update = function (activeNodes) {
+		lines.clear();
+
+		if (options.initPosAlignment){
+			mouseLine(activeNodes);
+		}
+
+    if (activeNodes)
+      activeNodes.each(function (node, i) {
+        if(typeof node === "number") {
+          node = i;
+        }
+        if (options.geometricGuideline){
+          lines.searchForLine("horizontal", node);
+          lines.searchForLine("vertical", node);
+        }
+
+        if (options.distributionGuidelines){
+          lines.horizontalDistribution(node);
+          lines.verticalDistribution(node);
+        }
+      });
+
+	};
+
+	lines.resize = function () {
+		resizeCanvas();
+	};
+
+	function getTopMostNodes(nodes) {
+		var nodesMap = {};
+
+		for (var i = 0; i < nodes.length; i++) {
+			nodesMap[nodes[i].id()] = true;
+		}
+
+		var roots = nodes.filter(function (ele, i) {
+			if(typeof ele === "number") {
+				ele = i;
+			}
+
+			var parent = ele.parent()[0];
+			while (parent != null) {
+				if (nodesMap[parent.id()]) {
+					return false;
+				}
+				parent = parent.parent()[0];
+			}
+			return true;
+		});
+
+		return roots;
+	}
+
+	var mouseInitPos = {};
+	var mouseRelativePos = {};
+	var getMousePos = function(e){
+		mouseInitPos = e.renderedPosition || e.cyRenderedPosition;
+		mouseRelativePos.x = mouseInitPos.x;
+		mouseRelativePos.y = mouseInitPos.y;
+	}
+	var setMousePos = function(panCurrPos){
+		mouseRelativePos.x += (panCurrPos.x - panInitPos.x);
+		mouseRelativePos.y += (panCurrPos.y - panInitPos.y);
+		panInitPos.x = panCurrPos.x; panInitPos.y = panCurrPos.y;
+	};
+	var mouseLine = function(node){
+		var nodeCurrentPos = node.renderedPosition();	
+		if (Math.abs(nodeInitPos.y - nodeCurrentPos.y) < options.guidelinesTolerance){
+			lines.drawLine({
+				"x" : mouseRelativePos.x,
+				"y" : mouseInitPos.y
+			}, {
+				"x" : nodeCurrentPos.x,
+				"y" : mouseInitPos.y
+			}, options.guidelinesStyle.initPosAlignmentColor, options.guidelinesStyle.initPosAlignmentLine);
+			if (mouseInitPos.y == mouseRelativePos.y){
+				lines.drawCross(mouseRelativePos);
+			}
+			else{
+				lines.drawCross(mouseInitPos);
+			}
+		}
+		else if (Math.abs(nodeInitPos.x - nodeCurrentPos.x) < options.guidelinesTolerance){
+			lines.drawLine({
+				"x" : mouseInitPos.x,
+				"y" : mouseRelativePos.y
+			}, {
+				"x" : mouseInitPos.x,
+				"y" : nodeCurrentPos.y
+			}, options.guidelinesStyle.initPosAlignmentColor, options.guidelinesStyle.initPosAlignmentLine);
+			if (mouseInitPos.x == mouseRelativePos.x){
+				lines.drawCross(mouseRelativePos);
+			}
+			else{
+				lines.drawCross(mouseInitPos);
+			}
+		}
+	}
+
+	function moveNodes(positionDiff, nodes) {
+		// Get the descendants of top most nodes. Note that node.position() can move just the simple nodes.
+		var topMostNodes = getTopMostNodes(nodes);
+		var nodesToMove = topMostNodes.union(topMostNodes.descendants());
+
+		nodesToMove.filter(":childless").forEach(function(node, i) {
+			if(typeof node === "number") {
+				node = i;
+			}
+			var newPos = {x: positionDiff.x + node.renderedPosition("x"),
+				y: positionDiff.y + node.renderedPosition("y")};
+
+			node.renderedPosition(newPos);
+		});
+	}
+
+	var tappedNode;
+	cy.on("tapstart", "node", function(){tappedNode = this});
+
+	var currMousePos, oldMousePos = {"x": 0, "y": 0};
+	cy.on("mousemove", function(e){
+		currMousePos = e.renderedPosition || e.cyRenderedPosition;
+		if (nodeToAlign)
+			nodeToAlign.each(function (node, i){
+				if(typeof node === "number") {
+					node = i;
+				}
+				if (node.locked() && (Math.abs(currMousePos.x - oldMousePos.x) > 2*options.guidelinesTolerance
+					|| Math.abs(currMousePos.y - oldMousePos.y) > 2*options.guidelinesTolerance)){
+
+					node.unlock();
+					var diff = {};
+					diff.x = currMousePos.x - tappedNode.renderedPosition("x");
+					diff.y = currMousePos.y - tappedNode.renderedPosition("y");;
+					moveNodes(diff, node);
+				};
+			});
+
+	});
+	var nodeToAlign;
+	lines.snapToAlignmentLocation = function(activeNodes){
+		nodeToAlign = activeNodes;
+    if(activeNodes){
+      activeNodes.each(function (node, i){
+        if(typeof node === "number") {
+          node = i;
+        }
+        var newPos = node.renderedPosition();
+        if (alignedLocations.h){
+          oldMousePos = currMousePos;
+          newPos.x -= alignedLocations.h;
+          node.renderedPosition(newPos);
+        }
+        if (alignedLocations.v){
+          oldMousePos = currMousePos;
+          newPos.y -= alignedLocations.v;
+          node.renderedPosition(newPos);
+        };
+        if (alignedLocations.v || alignedLocations.h){
+          alignedLocations.h = null;
+          alignedLocations.v = null;
+          nodeToAlign.lock();
+        }
+      });
+      lines.update(activeNodes);
+    }
+	}
+
+	return {
+		changeOptions: changeOptions,
+		lines: lines,
+		getTopMostNodes: getTopMostNodes,
+		getMousePos: getMousePos,
+		setMousePos: setMousePos,
+		resizeCanvas: resizeCanvas,
+		resetCanvas: resetCanvas,
+	}
+};
+
+},{"functional-red-black-tree":12}],7:[function(require,module,exports){
+;(function(){ 'use strict';
+
+	// registers the extension on a cytoscape lib ref
+	var register = function(cytoscape){
+
+		if(!cytoscape){ return; } // can't register if cytoscape unspecified
+		require("./extend");
+
+		// flag that indicates if extension api functions are registed to cytoscape
+		// note that ideally these functions should not be directly registered to core from cytoscape.js
+		// extensions
+		var apiRegistered = false;
+
+		var defaults = {
+			// On/Off Modules
+			/* From the following four snap options, at most one should be true at a given time */
+			snapToGridOnRelease: true, // Snap to grid on release
+			snapToGridDuringDrag: false, // Snap to grid during drag
+			snapToAlignmentLocationOnRelease: false, // Snap to alignment location on release
+			snapToAlignmentLocationDuringDrag: false, // Snap to alignment location during drag
+			distributionGuidelines: false, //Distribution guidelines
+			geometricGuideline: false, // Geometric guidelines
+			initPosAlignment: false, // Guideline to initial mouse position
+			centerToEdgeAlignment: false, // Center tı edge alignment
+			resize: false, // Adjust node sizes to cell sizes
+			parentPadding: false, // Adjust parent sizes to cell sizes by padding
+			drawGrid: true, // Draw grid background
+
+			// General
+			gridSpacing: 20, // Distance between the lines of the grid.
+			snapToGridCenter: true, // Snaps nodes to center of gridlines. When false, snaps to gridlines themselves.
+			zoomDash: true, // Determines whether the size of the dashes should change when the drawing is zoomed in and out if grid is drawn.
+			panGrid: false, // Determines whether the grid should move then the user moves the graph if grid is drawn.
+			gridStackOrder: -1, // Namely z-index
+			gridColor: '#dedede', // Color of grid lines
+			lineWidth: 1.0, // Width of grid lines
+			guidelinesStackOrder: 4, // z-index of guidelines
+			guidelinesTolerance: 2.00, // Tolerance distance for rendered positions of nodes' interaction.
+			guidelinesStyle: { // Set ctx properties of line. Properties are here:
+				strokeStyle: "#8b7d6b", // color of geometric guidelines
+				geometricGuidelineRange: 400, // range of geometric guidelines
+				range: 100, // max range of distribution guidelines
+				minDistRange: 10, // min range for distribution guidelines
+				distGuidelineOffset: 10, // shift amount of distribution guidelines
+				horizontalDistColor: "#ff0000", // color of horizontal distribution alignment
+				verticalDistColor: "#00ff00", // color of vertical distribution alignment
+				initPosAlignmentColor: "#0000ff", // color of alignment to initial location
+				lineDash: [0, 0], // line style of geometric guidelines
+				horizontalDistLine: [0, 0], // line style of horizontal distribıtion guidelines
+				verticalDistLine: [0, 0], // line style of vertical distribıtion guidelines
+				initPosAlignmentLine: [0, 0], // line style of alignment to initial mouse position
+			},
+
+			// Parent Padding
+			parentSpacing: -1 // -1 to set paddings of parents to gridSpacing
+		};
+		var _snapOnRelease = require("./snap_on_release");
+		var _snapToGridDuringDrag = require("./snap_during_drag");
+		var _drawGrid = require("./draw_grid");
+		var _resize = require("./resize");
+		var _eventsController = require("./events_controller");
+		var _guidelines = require("./guidelines");
+		var _parentPadding = require("./parentPadding");
+		var _alignment = require("./alignment");
+		var debounce = require("./debounce");
+
+		function getScratch(cy) {
+			if (!cy.scratch("_gridGuide")) {
+				cy.scratch("_gridGuide", { });
+			}
+
+			return cy.scratch("_gridGuide");
+		}
+
+		cytoscape( 'core', 'gridGuide', function(opts){
+			var cy = this;
+
+			// access the scratch pad for cy
+			var scratchPad = getScratch(cy);
+
+			// extend the already existing options for the instance or the default options
+			var options = Object.extend({}, scratchPad.options || defaults, opts);
+
+			// reset the options for the instance
+			scratchPad.options = options;
+
+			if (!scratchPad.initialized) {
+
+				var snap, resize, snapToGridDuringDrag, drawGrid, eventsController, guidelines, parentPadding, alignment;
+
+				snap = _snapOnRelease(cy, options.gridSpacing, options.snapToGridCenter);
+				resize = _resize(options.gridSpacing);
+				snapToGridDuringDrag = _snapToGridDuringDrag(cy, snap);
+				drawGrid = _drawGrid(options, cy, debounce);
+				guidelines = _guidelines(options, cy, debounce);
+				parentPadding = _parentPadding(options, cy);
+
+				eventsController = _eventsController(cy, snap, resize, snapToGridDuringDrag, drawGrid, guidelines, parentPadding, options);
+
+				alignment = _alignment(cytoscape, cy, apiRegistered);
+
+				// mark that api functions are registered to cytoscape
+				apiRegistered = true;
+
+				eventsController.init(options);
+
+				// init params in scratchPad
+				scratchPad.initialized = true;
+				scratchPad.eventsController = eventsController;
+			}
+			else {
+				var eventsController = scratchPad.eventsController;
+				eventsController.syncWithOptions(options);
+			}
+
+			return this; // chainability
+		} ) ;
+
+	};
+
+	if( typeof module !== 'undefined' && module.exports ){ // expose as a commonjs module
+		module.exports = register;
+	}
+
+	if( typeof define !== 'undefined' && define.amd ){ // expose as an amd/requirejs module
+		define('cytoscape-grid-guide', function(){
+			return register;
+		});
+	}
+
+	if( typeof cytoscape !== 'undefined' ){ // expose to global cytoscape (i.e. window.cytoscape)
+		register( cytoscape );
+	}
+
+})();
+
+},{"./alignment":1,"./debounce":2,"./draw_grid":3,"./events_controller":4,"./extend":5,"./guidelines":6,"./parentPadding":8,"./resize":9,"./snap_during_drag":10,"./snap_on_release":11}],8:[function(require,module,exports){
+module.exports = function (opts, cy) {
+
+    var options = opts;
+    var ppClass = "_gridParentPadding";
+    var padding;
+
+    function initPadding() {
+        cy.style()
+            .selector('.' + ppClass)
+            .style("compound-sizing-wrt-labels", "exclude")
+            .style("padding-left", padding)
+            .style("padding-right", padding)
+            .style("padding-top", padding)
+            .style("padding-bottom", padding)
+            .update();
+
+    }
+
+    function changeOptions(opts) {
+        options = opts;
+        padding = options.parentSpacing < 0 ? options.gridSpacing : options.parentSpacing;
+        initPadding();
+    }
+
+    function setPaddingOfParent(node, enable) {
+        if (enable)
+            node.addClass(ppClass);
+        else
+            node.removeClass(ppClass);
+    }
+
+    return {
+        changeOptions: changeOptions,
+        setPaddingOfParent: setPaddingOfParent
+    };
+};
+},{}],9:[function(require,module,exports){
+module.exports = function(gridSpacing) {
+
+
+  var changeOptions = function(opts) {
+    gridSpacing = Number(opts.gridSpacingSmall);
+  };
+
+  var getScratch = function(node) {
+    if (!node.scratch("_gridGuide"))
+      node.scratch("_gridGuide", {});
+
+    return node.scratch("_gridGuide");
+  };
+
+  function resizeNode(node) {
+    var width = node.outerWidth();
+    var height = node.outerHeight();
+    var widthDif = node.outerWidth() - node.width();
+    var heightDif = node.outerHeight() - node.height();
+
+    var newWidth = Math.ceil((width - gridSpacing) / (gridSpacing * 2)) * (gridSpacing * 2);
+    var newHeight = Math.ceil((height - gridSpacing) / (gridSpacing * 2)) * (gridSpacing * 2);
+    newWidth = newWidth > 0 ? newWidth + gridSpacing : gridSpacing;
+    newHeight = newHeight > 0 ? newHeight + gridSpacing : gridSpacing;
+
+    if (width != newWidth || height != newHeight) {
+      console.log("--------------------")
+      console.log("id", node.id())
+      console.log("width", width)
+      console.log("widthDif", widthDif)
+      console.log("newWidth", newWidth)
+      console.log("children", node.children().length)
+      if (node.children().length > 0) {
+        console.log("-> update width")
+        node.style({
+          "min-width": newWidth - widthDif,
+          "min-height": newHeight - heightDif
+        });
+      } else {
+        node.style({
+          "width": newWidth - widthDif,
+          "height": newHeight - heightDif
+        });
+      }
+      console.log("outer", node.outerWidth())
+      getScratch(node).resize = {
+        oldWidth: width - widthDif,
+        oldHeight: height - heightDif
+      };
+    }
+  }
+
+  function recoverNodeDimensions(node) {
+    var oldSizes = getScratch(node).resize;
+    if (oldSizes)
+      if (node.children) {
+        node.style({
+          "min-width": newWidth,
+          "min-height": newHeight
+        });
+      } else {
+        node.style({
+          "width": newWidth,
+          "height": newHeight
+        });
+      }
+
+
+  }
+
+
+  return {
+    resizeNode: resizeNode,
+    recoverNodeDimensions: recoverNodeDimensions,
+    changeOptions: changeOptions
+  };
+
+};
+
+},{}],10:[function(require,module,exports){
+module.exports = function(cy, snap) {
+
+  var snapToGridDuringDrag = {};
+
+  var attachedNode;
+  var draggedNodes;
+
+  var startPos;
+  var endPos;
+
+  snapToGridDuringDrag.onTapStartNode = function(e) {
+    // If user intends to do box selection, then return. Related issue #28
+    if (e.originalEvent.altKey || e.originalEvent.ctrlKey
+      || e.originalEvent.metaKey || e.originalEvent.shiftKey) {
+      return;
+    }
+
+    var cyTarget = e.target || e.cyTarget;
+    if (cyTarget.selected())
+      draggedNodes = e.cy.$(":selected");
+    else
+      draggedNodes = cyTarget;
+
+    startPos = e.position || e.cyPosition;
+
+    if (cyTarget.grabbable() && !cyTarget.locked()) {
+      attachedNode = cyTarget;
+      attachedNode.lock();
+      //attachedNode.trigger("grab");
+      cy.on("tapdrag", onTapDrag);
+      cy.on("tapend", onTapEndNode);
+    }
+  };
+
+  var onTapEndNode = function(e) {
+    //attachedNode.trigger("free");
+    cy.off("tapdrag", onTapDrag);
+    cy.off("tapend", onTapEndNode);
+    attachedNode.unlock();
+    e.preventDefault();
+  };
+
+  var getDist = function() {
+    return {
+      x: endPos.x - startPos.x,
+      y: endPos.y - startPos.y
+    }
+  };
+
+  var onTapDrag = function(e) {
+
+    var nodePos = attachedNode.position();
+    var nodes = draggedNodes.union(draggedNodes.descendants());
+    let largestWidth = 0;
+    let largestHeight = 0;
+    endPos = e.position || e.cyPosition;
+    nodes.forEach(node => {
+      if (node.outerWidth() > largestWidth) {
+        largestWidth = node.outerWidth()
+      }
+      if (node.outerHeight() > largestHeight) {
+        largestHeight = node.outerHeight()
+      }
+    })
+
+    endPos.x -= (largestWidth / 2)
+    endPos.y -= (largestHeight / 2)
+
+    endPos = snap.snapPos(endPos, largestWidth, largestHeight);
+    var dist = getDist();
+    if (dist.x != 0 || dist.y != 0) {
+      attachedNode.unlock();
+
+      nodes.filter(":childless").positions(function(node, i) {
+        if (typeof node === "number") {
+          node = i;
+        }
+        var pos = node.position();
+        pos.x -= (node.outerWidth() / 2)
+        pos.y -= (node.outerHeight() / 2)
+        return snap.snapPos({
+          x: pos.x + dist.x,
+          y: pos.y + dist.y
+        }, node.outerWidth(), node.outerHeight());
+      });
+
+      startPos = endPos;
+      attachedNode.lock();
+      attachedNode.trigger("drag");
+    }
+
+  };
+
+  return snapToGridDuringDrag;
+
+
+};
+
+},{}],11:[function(require,module,exports){
+module.exports = function(cy, gridSpacing, gridSpacingOffset) {
+
+  var snap = {};
+
+  snap.changeOptions = function(opts) {
+    gridSpacing = opts.gridSpacingSmall;
+    gridSpacingOffset = opts.snapToGridCenter ? 0.5 : 0;
+  };
+
+  var getScratch = function(node) {
+    if (!node.scratch("_gridGuide"))
+      node.scratch("_gridGuide", {});
+
+    return node.scratch("_gridGuide");
+  };
+
+  snap.snapPos = function(pos, width, height) {
+    var xPosition = gridSpacingOffset ? Math.floor(pos.x / gridSpacing) : Math.round(pos.x / gridSpacing);
+    var yPosition = gridSpacingOffset ? Math.floor(pos.y / gridSpacing) : Math.round(pos.y / gridSpacing);
+    if (width && height) {
+      var newPos = {
+        x: ((xPosition + gridSpacingOffset) * gridSpacing) + (width / 2),
+        y: ((yPosition + gridSpacingOffset) * gridSpacing) + (height / 2)
+      };
+    } else {
+      console.log("hi")
+      var newPos = {
+        x: (xPosition + gridSpacingOffset) * gridSpacing,
+        y: (yPosition + gridSpacingOffset) * gridSpacing
+      };
+    }
+
+    return newPos;
+  };
+
+  snap.snapNode = function(node) {
+
+    var pos = node.position();
+    var newPos = snap.snapPos(pos);
+
+    node.position(newPos);
+  };
+
+  snap.snapNodesTopDown = function(nodes) {
+    // getTOpMostNodes -> nodes
+    cy.startBatch();
+    nodes.union(nodes.descendants()).filter(":childless").positions(function(node, i) {
+      if (typeof node === "number") {
+        node = i;
+      }
+      var pos = node.position();
+      return snap.snapPos(pos);
+    });
+    cy.endBatch();
+  };
+
+  snap.onFreeNode = function(e) {
+    var nodes;
+    var cyTarget = e.target || e.cyTarget;
+    if (cyTarget.selected())
+      nodes = e.cy.$(":selected");
+    else
+      nodes = cyTarget;
+
+    snap.snapNodesTopDown(nodes);
+
+  };
+
+
+  snap.recoverSnapNode = function(node) {
+    var snapScratch = getScratch(node).snap;
+    if (snapScratch) {
+      node.position(snapScratch.oldPos);
+    }
+  };
+
+  return snap;
+
+
+
+
+
+};
+
+},{}],12:[function(require,module,exports){
 "use strict"
 
 module.exports = createRBTree
@@ -995,2221 +3318,4 @@ function defaultCompare(a, b) {
 function createRBTree(compare) {
   return new RedBlackTree(compare || defaultCompare, null)
 }
-},{}],2:[function(require,module,exports){
-module.exports = function (cytoscape, cy, apiRegistered) {
-
-    // Needed because parent nodes cannot be moved in Cytoscape.js < v3.2
-    function moveTopDown(node, dx, dy) {
-        var nodes = node.union(node.descendants());
-
-        nodes.filter(":childless").positions(function (node, i) {
-            if(typeof node === "number") {
-              node = i;
-            }
-            var pos = node.position();
-            return {
-                x: pos.x + dx,
-                y: pos.y + dy
-            };
-        });
-    }
-
-    function getTopMostNodes(nodes) {
-        var nodesMap = {};
-        for (var i = 0; i < nodes.length; i++) {
-            nodesMap[nodes[i].id()] = true;
-        }
-        var roots = nodes.filter(function (ele, i) {
-            if(typeof ele === "number") {
-              ele = i;
-            }
-            
-            var parent = ele.parent()[0];
-            while(parent != null){
-                if(nodesMap[parent.id()]){
-                    return false;
-                }
-                parent = parent.parent()[0];
-            }
-            return true;
-        });
-
-        return roots;
-    }
-
-
-    // If extension api functions are not registed to cytoscape yet register them here.
-		// Note that ideally these functions should not be directly registered to core from cytoscape.js
-		// extensions
-    if ( !apiRegistered ) {
-
-      cytoscape( "collection", "align", function (horizontal, vertical, alignTo) {
-
-          var eles = getTopMostNodes(this.nodes(":visible"));
-
-          var modelNode = alignTo ? alignTo : eles[0];
-
-          eles = eles.not(modelNode);
-
-          horizontal = horizontal ? horizontal : "none";
-          vertical = vertical ? vertical : "none";
-
-
-          // 0 for center
-          var xFactor = 0;
-          var yFactor = 0;
-
-          if (vertical == "left")
-              xFactor = -1;
-          else if (vertical == "right")
-              xFactor = 1;
-
-          if (horizontal == "top")
-              yFactor = -1;
-          else if (horizontal == "bottom")
-              yFactor = 1;
-
-
-          for (var i = 0; i < eles.length; i++) {
-              var node = eles[i];
-              var oldPos = Object.assign({}, node.position());
-              var newPos = Object.assign({}, node.position());
-
-              if (vertical != "none")
-                  newPos.x = modelNode.position("x") + xFactor * (modelNode.outerWidth() - node.outerWidth()) / 2;
-
-
-              if (horizontal != "none")
-                  newPos.y = modelNode.position("y") + yFactor * (modelNode.outerHeight() - node.outerHeight()) / 2;
-
-              moveTopDown(node, newPos.x - oldPos.x, newPos.y - oldPos.y);
-          }
-
-          return this;
-      });
-
-    }
-
-
-    if (cy.undoRedo) {
-        function getNodePositions() {
-            var positionsAndSizes = {};
-            var nodes = cy.nodes();
-
-            for (var i = 0; i < nodes.length; i++) {
-                var ele = nodes[i];
-                positionsAndSizes[ele.id()] = {
-                    x: ele.position("x"),
-                    y: ele.position("y")
-                };
-            }
-
-            return positionsAndSizes;
-        }
-
-        function returnToPositions(nodesData) {
-            var currentPositions = {};
-            cy.nodes().not(":parent").positions(function (ele, i) {
-                if(typeof ele === "number") {
-                  ele = i;
-                }
-                currentPositions[ele.id()] = {
-                    x: ele.position("x"),
-                    y: ele.position("y")
-                };
-                var data = nodesData[ele.id()];
-                return {
-                    x: data.x,
-                    y: data.y
-                };
-            });
-
-            return currentPositions
-        }
-
-        var ur = cy.undoRedo(null, true);
-
-        ur.action("align", function (args) {
-
-            var nodesData;
-            if (args.firstTime){
-                nodesData = getNodePositions();
-                args.nodes.align(args.horizontal, args.vertical, args.alignTo);
-            }
-            else
-                nodesData = returnToPositions(args);
-
-            return nodesData;
-
-        }, function (nodesData) {
-            return returnToPositions(nodesData);
-        });
-
-    }
-
-
-
-};
-
-},{}],3:[function(require,module,exports){
-
-var debounce = (function(){
-    /**
-     * lodash 3.1.1 (Custom Build) <https://lodash.com/>
-     * Build: `lodash modern modularize exports="npm" -o ./`
-     * Copyright 2012-2015 The Dojo Foundation <http://dojofoundation.org/>
-     * Based on Underscore.js 1.8.3 <http://underscorejs.org/LICENSE>
-     * Copyright 2009-2015 Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
-     * Available under MIT license <https://lodash.com/license>
-     */
-    /** Used as the `TypeError` message for "Functions" methods. */
-    var FUNC_ERROR_TEXT = 'Expected a function';
-
-    /* Native method references for those with the same name as other `lodash` methods. */
-    var nativeMax = Math.max,
-        nativeNow = Date.now;
-
-    /**
-     * Gets the number of milliseconds that have elapsed since the Unix epoch
-     * (1 January 1970 00:00:00 UTC).
-     *
-     * @static
-     * @memberOf _
-     * @category Date
-     * @example
-     *
-     * _.defer(function(stamp) {
-     *   console.log(_.now() - stamp);
-     * }, _.now());
-     * // => logs the number of milliseconds it took for the deferred function to be invoked
-     */
-    var now = nativeNow || function() {
-            return new Date().getTime();
-        };
-
-    /**
-     * Creates a debounced function that delays invoking `func` until after `wait`
-     * milliseconds have elapsed since the last time the debounced function was
-     * invoked. The debounced function comes with a `cancel` method to cancel
-     * delayed invocations. Provide an options object to indicate that `func`
-     * should be invoked on the leading and/or trailing edge of the `wait` timeout.
-     * Subsequent calls to the debounced function return the result of the last
-     * `func` invocation.
-     *
-     * **Note:** If `leading` and `trailing` options are `true`, `func` is invoked
-     * on the trailing edge of the timeout only if the the debounced function is
-     * invoked more than once during the `wait` timeout.
-     *
-     * See [David Corbacho's article](http://drupalmotion.com/article/debounce-and-throttle-visual-explanation)
-     * for details over the differences between `_.debounce` and `_.throttle`.
-     *
-     * @static
-     * @memberOf _
-     * @category Function
-     * @param {Function} func The function to debounce.
-     * @param {number} [wait=0] The number of milliseconds to delay.
-     * @param {Object} [options] The options object.
-     * @param {boolean} [options.leading=false] Specify invoking on the leading
-     *  edge of the timeout.
-     * @param {number} [options.maxWait] The maximum time `func` is allowed to be
-     *  delayed before it's invoked.
-     * @param {boolean} [options.trailing=true] Specify invoking on the trailing
-     *  edge of the timeout.
-     * @returns {Function} Returns the new debounced function.
-     * @example
-     *
-     * // avoid costly calculations while the window size is in flux
-     * jQuery(window).on('resize', _.debounce(calculateLayout, 150));
-     *
-     * // invoke `sendMail` when the click event is fired, debouncing subsequent calls
-     * jQuery('#postbox').on('click', _.debounce(sendMail, 300, {
-     *   'leading': true,
-     *   'trailing': false
-     * }));
-     *
-     * // ensure `batchLog` is invoked once after 1 second of debounced calls
-     * var source = new EventSource('/stream');
-     * jQuery(source).on('message', _.debounce(batchLog, 250, {
-     *   'maxWait': 1000
-     * }));
-     *
-     * // cancel a debounced call
-     * var todoChanges = _.debounce(batchLog, 1000);
-     * Object.observe(models.todo, todoChanges);
-     *
-     * Object.observe(models, function(changes) {
-     *   if (_.find(changes, { 'user': 'todo', 'type': 'delete'})) {
-     *     todoChanges.cancel();
-     *   }
-     * }, ['delete']);
-     *
-     * // ...at some point `models.todo` is changed
-     * models.todo.completed = true;
-     *
-     * // ...before 1 second has passed `models.todo` is deleted
-     * // which cancels the debounced `todoChanges` call
-     * delete models.todo;
-     */
-    function debounce(func, wait, options) {
-        var args,
-            maxTimeoutId,
-            result,
-            stamp,
-            thisArg,
-            timeoutId,
-            trailingCall,
-            lastCalled = 0,
-            maxWait = false,
-            trailing = true;
-
-        if (typeof func != 'function') {
-            throw new TypeError(FUNC_ERROR_TEXT);
-        }
-        wait = wait < 0 ? 0 : (+wait || 0);
-        if (options === true) {
-            var leading = true;
-            trailing = false;
-        } else if (isObject(options)) {
-            leading = !!options.leading;
-            maxWait = 'maxWait' in options && nativeMax(+options.maxWait || 0, wait);
-            trailing = 'trailing' in options ? !!options.trailing : trailing;
-        }
-
-        function cancel() {
-            if (timeoutId) {
-                clearTimeout(timeoutId);
-            }
-            if (maxTimeoutId) {
-                clearTimeout(maxTimeoutId);
-            }
-            lastCalled = 0;
-            maxTimeoutId = timeoutId = trailingCall = undefined;
-        }
-
-        function complete(isCalled, id) {
-            if (id) {
-                clearTimeout(id);
-            }
-            maxTimeoutId = timeoutId = trailingCall = undefined;
-            if (isCalled) {
-                lastCalled = now();
-                result = func.apply(thisArg, args);
-                if (!timeoutId && !maxTimeoutId) {
-                    args = thisArg = undefined;
-                }
-            }
-        }
-
-        function delayed() {
-            var remaining = wait - (now() - stamp);
-            if (remaining <= 0 || remaining > wait) {
-                complete(trailingCall, maxTimeoutId);
-            } else {
-                timeoutId = setTimeout(delayed, remaining);
-            }
-        }
-
-        function maxDelayed() {
-            complete(trailing, timeoutId);
-        }
-
-        function debounced() {
-            args = arguments;
-            stamp = now();
-            thisArg = this;
-            trailingCall = trailing && (timeoutId || !leading);
-
-            if (maxWait === false) {
-                var leadingCall = leading && !timeoutId;
-            } else {
-                if (!maxTimeoutId && !leading) {
-                    lastCalled = stamp;
-                }
-                var remaining = maxWait - (stamp - lastCalled),
-                    isCalled = remaining <= 0 || remaining > maxWait;
-
-                if (isCalled) {
-                    if (maxTimeoutId) {
-                        maxTimeoutId = clearTimeout(maxTimeoutId);
-                    }
-                    lastCalled = stamp;
-                    result = func.apply(thisArg, args);
-                }
-                else if (!maxTimeoutId) {
-                    maxTimeoutId = setTimeout(maxDelayed, remaining);
-                }
-            }
-            if (isCalled && timeoutId) {
-                timeoutId = clearTimeout(timeoutId);
-            }
-            else if (!timeoutId && wait !== maxWait) {
-                timeoutId = setTimeout(delayed, wait);
-            }
-            if (leadingCall) {
-                isCalled = true;
-                result = func.apply(thisArg, args);
-            }
-            if (isCalled && !timeoutId && !maxTimeoutId) {
-                args = thisArg = undefined;
-            }
-            return result;
-        }
-        debounced.cancel = cancel;
-        return debounced;
-    }
-
-    /**
-     * Checks if `value` is the [language type](https://es5.github.io/#x8) of `Object`.
-     * (e.g. arrays, functions, objects, regexes, `new Number(0)`, and `new String('')`)
-     *
-     * @static
-     * @memberOf _
-     * @category Lang
-     * @param {*} value The value to check.
-     * @returns {boolean} Returns `true` if `value` is an object, else `false`.
-     * @example
-     *
-     * _.isObject({});
-     * // => true
-     *
-     * _.isObject([1, 2, 3]);
-     * // => true
-     *
-     * _.isObject(1);
-     * // => false
-     */
-    function isObject(value) {
-        // Avoid a V8 JIT bug in Chrome 19-20.
-        // See https://code.google.com/p/v8/issues/detail?id=2291 for more details.
-        var type = typeof value;
-        return !!value && (type == 'object' || type == 'function');
-    }
-
-    return debounce;
-
-})();
-
-module.exports = debounce;
-},{}],4:[function(require,module,exports){
-module.exports = function(opts, cy, debounce) {
-
-  var options = opts;
-
-  var changeOptions = function(opts) {
-    options = opts;
-  };
-
-  var offset = function(elt) {
-    var rect = elt.getBoundingClientRect();
-
-    return {
-      top: rect.top + document.documentElement.scrollTop,
-      left: rect.left + document.documentElement.scrollLeft
-    }
-  };
-
-  var $canvas = document.createElement('canvas');
-  var $container = cy.container();
-  var ctx = $canvas.getContext('2d');
-  $container.appendChild($canvas);
-
-  var resetCanvas = function() {
-    $canvas.height = 0;
-    $canvas.width = 0;
-    $canvas.style.position = 'absolute';
-    $canvas.style.top = 0;
-    $canvas.style.left = 0;
-    $canvas.style.zIndex = options.gridStackOrder;
-  };
-
-  resetCanvas();
-
-  var drawGrid = function() {
-    var zoom = cy.zoom();
-    var canvasWidth = cy.width();
-    var canvasHeight = cy.height();
-    var increment = options.gridSpacing * zoom;
-    var incrementSmall = options.gridSpacingSmall * zoom;
-    var pan = cy.pan();
-    var initialValueX = pan.x % increment;
-    var initialValueY = pan.y % increment;
-
-    ctx.strokeStyle = options.gridColor;
-    ctx.lineWidth = options.lineWidth;
-
-
-    clearDrawing();
-    for (var y = initialValueY; y < canvasHeight; y += increment) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(canvasWidth, y);
-      ctx.stroke();
-    }
-
-    // Draw large vertical grid lines
-    for (var x = initialValueX; x < canvasWidth; x += increment) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, canvasHeight);
-      ctx.stroke();
-    }
-
-    if (options.gridSpacingSmall > 0 && options.gridColorSmall) {
-      ctx.strokeStyle = options.gridColorSmall;
-      ctx.lineWidth = options.lineWidthSmall;
-
-      // Draw small horizontal grid lines
-      for (var y = initialValueY; y < canvasHeight; y += incrementSmall) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(canvasWidth, y);
-        ctx.stroke();
-      }
-
-      // Draw small vertical grid lines
-      for (var x = initialValueX; x < canvasWidth; x += incrementSmall) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, canvasHeight);
-        ctx.stroke();
-      }
-    }
-  };
-
-  var clearDrawing = function() {
-    var width = cy.width();
-    var height = cy.height();
-
-    ctx.clearRect(0, 0, width, height);
-  };
-
-  var resizeCanvas = debounce(function() {
-    $canvas.height = cy.height();
-    $canvas.width = cy.width();
-    $canvas.style.position = 'absolute';
-    $canvas.style.top = 0;
-    $canvas.style.left = 0;
-    $canvas.style.zIndex = options.gridStackOrder;
-
-    setTimeout(function() {
-      $canvas.height = cy.height();
-      $canvas.width = cy.width();
-
-      var canvasBb = offset($canvas);
-      var containerBb = offset($container);
-      $canvas.style.top = -(canvasBb.top - containerBb.top);
-      $canvas.style.left = -(canvasBb.left - containerBb.left);
-      drawGrid();
-    }, 0);
-
-  }, 250);
-
-
-
-
-  return {
-    initCanvas: resizeCanvas,
-    resizeCanvas: resizeCanvas,
-    resetCanvas: resetCanvas,
-    clearCanvas: clearDrawing,
-    drawGrid: drawGrid,
-    changeOptions: changeOptions,
-    sizeCanvas: drawGrid
-  };
-};
-
-},{}],5:[function(require,module,exports){
-module.exports = function (cy, snap, resize, snapToGridDuringDrag, drawGrid, guidelines, parentPadding, opts) {
-
-	var feature = function (func) {
-		return function (enable) {
-			func(enable);
-		};
-	};
-
-	var controller = {
-		snapToGridDuringDrag: new feature(setDiscreteDrag),
-		resize: new feature(setResize),
-		snapToGridOnRelease: new feature(setSnapToGrid),
-		drawGrid: new feature(setDrawGrid),
-		guidelines: new feature(setGuidelines),
-		parentPadding: new feature(setParentPadding)
-	};
-
-	function applyToCyTarget(func, allowParent) {
-		return function (e) {
-            var cyTarget = e.target || e.cyTarget;
-			if (!cyTarget.is(":parent") || allowParent)
-				func(cyTarget);
-		}
-	}
-
-	function applyToAllNodesButNoParent(func) {
-		return function () {
-			cy.nodes().not(":parent").each(function (ele, i) {
-                if(typeof ele === "number") {
-                  ele = i;
-                }
-                
-				func(ele);
-			});
-		};
-	}
-	function applyToAllNodes(func) {
-		return function () {
-			cy.nodes().each(function (ele, i) {
-                if(typeof ele === "number") {
-                  ele = i;
-                }
-                
-				func(ele);
-			});
-		};
-	}
-
-	function eventStatus(enable) {
-		return enable ? "on" : "off";
-	}
-
-
-	// Discrete Drag
-	function setDiscreteDrag(enable) {
-		cy[eventStatus(enable)]("tapstart", "node", snapToGridDuringDrag.onTapStartNode);
-	}
-
-	// Resize
-	var resizeAllNodes = applyToAllNodesButNoParent(resize.resizeNode);
-	var resizeNode = applyToCyTarget(resize.resizeNode);
-	var recoverAllNodeDimensions = applyToAllNodesButNoParent(resize.recoverNodeDimensions);
-
-	function setResize(enable) {
-		cy[eventStatus(enable)]("ready", resizeAllNodes);
-		//  cy[eventStatus(enable)]("style", "node", resizeNode);
-		enable ? resizeAllNodes() : recoverAllNodeDimensions();
-	}
-
-	// Snap To Grid
-	var snapAllNodes = applyToAllNodes(snap.snapNodesTopDown);
-	var recoverSnapAllNodes = applyToAllNodes(snap.recoverSnapNode);
-	var snapCyTarget = applyToCyTarget(snap.snapNode, true);
-
-	function setSnapToGrid(enable) {
-		cy[eventStatus(enable)]("add", "node", snapCyTarget);
-		cy[eventStatus(enable)]("ready", snapAllNodes);
-
-		cy[eventStatus(enable)]("free", "node", snap.onFreeNode);
-
-		if (enable) {
-			snapAllNodes();
-		} else {
-			recoverSnapAllNodes();
-		}
-	}
-
-	// Draw Grid
-	var drawGridOnZoom = function () {
-		if (currentOptions.zoomDash) drawGrid.drawGrid()
-	};
-	var drawGridOnPan = function () {
-		if (currentOptions.panGrid) drawGrid.drawGrid()
-	};
-
-	function setDrawGrid(enable) {
-		cy[eventStatus(enable)]('zoom', drawGridOnZoom);
-		cy[eventStatus(enable)]('pan', drawGridOnPan);
-
-		if (enable) {
-			drawGrid.initCanvas();
-      cy.on('resize', drawGrid.resizeCanvas);
-		} else {
-			drawGrid.clearCanvas();
-			drawGrid.resetCanvas();
-      cy.off('resize', drawGrid.resizeCanvas);
-		}
-	}
-
-	// Guidelines
-	var activeTopMostNodes = null;
-	var guidelinesGrabHandler = function(e){
-        var cyTarget = e.target || e.cyTarget;
-		var nodes = cyTarget.selected() ? e.cy.$(":selected") : cyTarget;
-		activeTopMostNodes = guidelines.getTopMostNodes(nodes.nodes());
-		guidelines.lines.init(activeTopMostNodes);
-	}
-	var guidelinesDragHandler = function(e){
-		if (this.id() == activeTopMostNodes.id()){
-			guidelines.lines.update(activeTopMostNodes);
-
-			if (currentOptions.snapToAlignmentLocationDuringDrag)
-				guidelines.lines.snapToAlignmentLocation(activeTopMostNodes);
-		}
-	};
-	var guidelinesFreeHandler = function(e){
-		if (currentOptions.snapToAlignmentLocationOnRelease)
-			guidelines.lines.snapToAlignmentLocation(activeTopMostNodes);
-
-		guidelines.lines.destroy();
-		activeTopMostNodes = null;
-	};
-	var guidelinesWindowResizeHandler = function(e){
-		guidelines.lines.resize();
-	};
-	var guidelinesTapHandler = function(e){
-		guidelines.getMousePos(e);
-	};
-	var guidelinesPanHandler = function(e){
-		if (activeTopMostNodes){
-			guidelines.setMousePos(cy.pan());
-			guidelines.lines.init(activeTopMostNodes);
-		}
-	}
-	function setGuidelines(enable) {
-		if (enable){
-			guidelines.resizeCanvas();
-			cy.on("tapstart", "node", guidelinesTapHandler);
-			cy.on("grab", guidelinesGrabHandler);
-			cy.on("pan", guidelinesPanHandler);
-			cy.on("drag", "node", guidelinesDragHandler);
-			cy.on("free", guidelinesFreeHandler);
-			window.addEventListener('resize', guidelinesWindowResizeHandler);
-		}
-		else{
-			cy.off("tapstart", "node", guidelinesTapHandler);
-			cy.off("grab", guidelinesGrabHandler);
-			cy.off("pan", guidelinesPanHandler);
-			cy.off("drag", "node", guidelinesDragHandler);
-			cy.off("free", guidelinesFreeHandler);
-			guidelines.resetCanvas();
-			window.removeEventListener('resize', guidelinesWindowResizeHandler);
-		}
-	}
-
-	// Parent Padding
-	var setAllParentPaddings = function (enable) {
-		parentPadding.setPaddingOfParent(cy.nodes(":parent"), enable);
-	};
-	var enableParentPadding = function (node) {
-		parentPadding.setPaddingOfParent(node, true);
-	};
-
-
-	function setParentPadding(enable) {
-
-		setAllParentPaddings(enable);
-
-		cy[eventStatus(enable)]('ready', setAllParentPaddings);
-		cy[eventStatus(enable)]("add", "node:parent", applyToCyTarget(enableParentPadding, true));
-	}
-
-	// Sync with options: Enables/disables changed via options.
-	var latestOptions = {};
-	var currentOptions;
-
-	var specialOpts = {
-		drawGrid: ["gridSpacing", "zoomDash", "panGrid", "gridStackOrder", "gridColor", "lineWidth", "lineDash"],
-		guidelines: ["gridSpacing", "guidelinesStackOrder", "guidelinesTolerance", "guidelinesStyle", "distributionGuidelines", "range", "minDistRange",  "geometricGuidelineRange"],
-		resize: ["gridSpacing"],
-		parentPadding: ["gridSpacing", "parentSpacing"],
-		snapToGridOnRelease: ["gridSpacing", "snapToGridCenter"]
-	};
-
-	function syncWithOptions(options) {
-		currentOptions = Object.extend({}, options);
-		options.guidelines = options.initPosAlignment ||  options.distributionGuidelines || options.geometricGuideline;
-		for (var key in options)
-			if (latestOptions[key] != options[key])
-				if (controller.hasOwnProperty(key)) {
-					controller[key](options[key]);
-				} else {
-					for (var optsKey in specialOpts) {
-						var opts = specialOpts[optsKey];
-						if (opts.indexOf(key) >= 0) {
-							if(optsKey == "drawGrid") {
-								drawGrid.changeOptions(options);
-								if (options.drawGrid)
-									drawGrid.resizeCanvas();
-							}
-
-							if (optsKey == "snapToGridOnRelease"){
-								snap.changeOptions(options);
-								if (options.snapToGridOnRelease)
-									snapAllNodes();
-							}
-
-							if(optsKey == "guidelines")
-								guidelines.changeOptions(options);
-
-							if (optsKey == "resize") {
-								resize.changeOptions(options);
-								if (options.resize)
-									resizeAllNodes();
-							}
-
-							if (optsKey == "parentPadding")
-								parentPadding.changeOptions(options);
-
-
-						}
-					}
-				}
-		latestOptions = Object.extend({}, latestOptions, options);
-	}
-
-	return {
-		init: syncWithOptions,
-		syncWithOptions: syncWithOptions
-	};
-
-};
-
-},{}],6:[function(require,module,exports){
-/**
- * Deep copy or merge objects - replacement for jQuery deep extend
- * Taken from http://youmightnotneedjquery.com/#deep_extend
- * and bug related to deep copy of Arrays is fixed.
- * Usage:Object.extend({}, objA, objB)
- */
-
-Object.extend = function(out) {
-	out = out || {};
-
-	for (var i = 1; i < arguments.length; i++) {
-		var obj = arguments[i];
-
-		if (!obj)
-			continue;
-
-		for (var key in obj) {
-			if (obj.hasOwnProperty(key)) {
-				if (Array.isArray(obj[key])) {
-					out[key] = obj[key].slice();
-				} else if (typeof obj[key] === 'object') {
-					out[key] = Object.extend(out[key], obj[key]);
-				} else {
-					out[key] = obj[key];
-				}
-			}
-		}
-	}
-
-	return out;
-};
-
-},{}],7:[function(require,module,exports){
-module.exports = function (opts, cy, debounce) {
-
-
-	var RBTree = require("functional-red-black-tree");
-
-	var options = opts;
-
-	var changeOptions = function (opts) {
-		options = opts;
-
-		// RBTree always returns null, when low == high
-		// to avoid this:
-		if (options.guidelinesTolerance == 0)
-			options.guidelinesTolerance = 0.001;
-	};
-
-	var offset = function(elt) {
-		var rect = elt.getBoundingClientRect();
-
-		return {
-			top: rect.top + document.documentElement.scrollTop,
-			left: rect.left + document.documentElement.scrollLeft
-		}
-	};
-
-	var getCyScratch = function () {
-		var sc = cy.scratch("_guidelines");
-		if (!sc)
-			sc = cy.scratch("_guidelines", {});
-
-		return sc;
-	};
-
-	/* Resize canvas */
-	var resizeCanvas = debounce(function () {
-		clearDrawing();
-		$canvas.height = cy.height();
-		$canvas.width = cy.width();
-		$canvas.style.position = 'absolute';
-		$canvas.style.top = 0;
-		$canvas.style.left = 0;
-		$canvas.style.zIndex = options.guidelinesStackOrder;
-
-		setTimeout(function () {
-
-			$canvas.height = cy.height();
-			$canvas.width = cy.width();
-
-			var canvasBb = offset($canvas);
-			var containerBb = offset($container);
-			$canvas.style.top = -(canvasBb.top - containerBb.top);
-			$canvas.style.left = -(canvasBb.left - containerBb.left);
-		}, 0);
-	}, 250);
-
-	/* Clear canvas */
-	var clearDrawing = function () {
-		var width = cy.width();
-		var height = cy.height();
-		ctx.clearRect(0, 0, width, height);
-	};
-
-	/* Create a canvas */
-	var $canvas = document.createElement('canvas');
-	var $container = cy.container();
-	var ctx = $canvas.getContext('2d');
-	$container.appendChild( $canvas );
-
-	var resetCanvas = function () {
-		$canvas.height = 0;
-		$canvas.width = 0;
-		$canvas.style.position = 'absolute';
-		$canvas.style.top = 0;
-		$canvas.style.left = 0;
-		$canvas.style.zIndex = options.guidelinesStackOrder;
-	};
-
-	resetCanvas();
-
-	/* Global variables */
-	var VTree = null;
-	var HTree = null;
-	var nodeInitPos;
-	var excludedNodes;
-	var lines = {};
-	var panInitPos = {};
-	var alignedLocations = {"h" : null, "v" : null};
-
-	/**
-	 * Get positions of sides of a node
-	 * @param node : a node
-	 * @return : object of positions
-	 */ 
-	lines.getDims = function (node) {
-		var pos = node.renderedPosition();
-		var width = node.renderedWidth();
-		var height = node.renderedHeight();
-		var padding = {
-			left: Number(node.renderedStyle("padding-left").replace("px", "")),
-			right: Number(node.renderedStyle("padding-right").replace("px", "")),
-			top: Number(node.renderedStyle("padding-top").replace("px", "")),
-			bottom: Number(node.renderedStyle("padding-bottom").replace("px", ""))
-		};
-
-		return {
-			horizontal: {
-				center: (pos.x),
-				left: Math.round(pos.x - (padding.left + width / 2)),
-				right: Math.round(pos.x + (padding.right + width / 2))
-			},
-			vertical: {
-				center: (pos.y),
-				top: Math.round(pos.y - (padding.top + height / 2)),
-				bottom: Math.round(pos.y + (padding.bottom + height / 2))
-			}
-		};
-	};
-
-	/**
-	 * Initialize trees and initial position of node
-	 * @param activeNodes : top most active nodes
-	 */
-	lines.init = function (activeNodes) {
-		VTree = RBTree();
-		HTree = RBTree();
-		// TODO: seperate initialization of nodeInitPos
-		// not necessary to init trees when geometric and distribution alignments are disabled,
-		// but reference guideline is enables
-		if (!nodeInitPos){
-			panInitPos.x = cy.pan("x"); panInitPos.y = cy.pan("y");
-			nodeInitPos = activeNodes.renderedPosition();
-		}
-
-		var nodes = cy.nodes(":visible");
-		excludedNodes = activeNodes.union(activeNodes.ancestors());
-		excludedNodes = excludedNodes.union(activeNodes.descendants());
-		nodes.not(excludedNodes).each(function (node, i) {
-			if(typeof node === "number") {
-				node = i;
-			}
-			var dims = lines.getDims(node);
-
-			["left", "center", "right"].forEach(function (val) {
-				var hKey = dims.horizontal[val];
-				if (HTree.get(hKey))
-					HTree.get(hKey).push(node);
-				else
-					HTree = HTree.insert(hKey, [node]);
-			});
-
-			["top", "center", "bottom"].forEach(function (val) {
-				var vKey = dims.vertical[val];
-				if (VTree.get(vKey))
-					VTree.get(vKey).push(node);
-				else
-					VTree = VTree.insert(vKey, [node]);
-			});
-
-		});
-		ctx.lineWidth=options.lineWidth;
-		lines.update(activeNodes);
-	};
-
-	/* Destroy gobal variables */
-	lines.destroy = function () {
-		lines.clear();
-		VTree = null; HTree = null;
-		nodeInitPos = null;
-		mouseInitPos = {};
-		alignedLocations = {"h" : null, "v" : null};
-		if (nodeToAlign){
-			nodeToAlign.unlock();
-			nodeToAlign = undefined;
-		}
-	};
-
-	lines.clear = clearDrawing;
-
-	/**
-	 * Draw straight line
-	 * @param from : initial position
-	 * @param to : final position
-	 * @param color : color of the line
-	 * @param lineStyle : whether line is solid or dashed
-	 */
-	lines.drawLine = function (from, to, color, lineStyle) {
-		ctx.setLineDash(lineStyle);
-		ctx.beginPath();
-		ctx.moveTo(from.x, from.y);
-		ctx.lineTo(to.x, to.y);
-		ctx.strokeStyle = color;
-		ctx.stroke();
-	};
-
-	/**
-	 * Draw an arrow
-	 * @param position : position of the arrow
-	 * @param type : type/directşon of the arrow
-	 */
-	lines.drawArrow = function(position, type){
-		if (type == "right"){
-			// right arrow
-			ctx.setLineDash([]);	
-			ctx.beginPath();
-			ctx.moveTo(position.x-5, position.y-5);
-			ctx.lineTo(position.x, position.y);
-			ctx.lineTo(position.x-5, position.y+5);
-			ctx.stroke();
-		}
-		else if (type == "left"){
-			// left arrow
-			ctx.setLineDash([]);	
-			ctx.beginPath();
-			ctx.moveTo(position.x+5, position.y-5);
-			ctx.lineTo(position.x, position.y);
-			ctx.lineTo(position.x+5, position.y+5);
-			ctx.stroke();
-		}
-		else if (type == "top"){
-			// up arrow
-			ctx.setLineDash([]);	
-			ctx.beginPath();
-			ctx.moveTo(position.x-5, position.y+5);
-			ctx.lineTo(position.x, position.y);
-			ctx.lineTo(position.x+5, position.y+5);
-			ctx.stroke();
-		}
-		else if (type == "bottom"){
-			// down arrow
-			ctx.setLineDash([]);	
-			ctx.beginPath();
-			ctx.moveTo(position.x-5, position.y-5);
-			ctx.lineTo(position.x, position.y);
-			ctx.lineTo(position.x+5, position.y-5);
-			ctx.stroke();
-		}
-
-	}
-
-	/**
-	 * Draw a cross - x
-	 * @param position : position of the cross
-	 */
-	lines.drawCross = function(position){
-		ctx.setLineDash([]);	
-		ctx.beginPath();
-		ctx.moveTo(position.x - 5, position.y + 5);
-		ctx.lineTo(position.x + 5, position.y - 5);
-		ctx.moveTo(position.x - 5, position.y - 5);
-		ctx.lineTo(position.x + 5, position.y + 5);
-		ctx.stroke();
-	};
-
-	/**
-	 * Calculate the amount of offset for distribution guidelines
-	 * @param nodes - list of nodes
-	 * @param type - horizontal or vertical
-	 */
-	var calculateOffset = function(nodes, type){
-		var minNode = nodes[0], min = lines.getDims(minNode)[type]["center"];
-		var maxNode = nodes[0], max = lines.getDims(maxNode)[type]["center"];
-
-		for (var i = 0; i < nodes.length; i++){
-			var node = nodes[i];
-			if (lines.getDims(node)[type]["center"] < min){
-				min = lines.getDims(node)[type]["center"]; minNode = node;
-			}
-			if (lines.getDims(node)[type]["center"] > max){
-				max = lines.getDims(node)[type]["center"]; maxNode = node;
-			}
-		}
-
-		if (type == "horizontal")
-			var offset = (min + max) / 2 < lines.getDims(nodes[1])[type]["center"] ? max + (0.5*maxNode.width() + options.guidelinesStyle.distGuidelineOffset)*cy.zoom() : min - (0.5*minNode.width() + options.guidelinesStyle.distGuidelineOffset)*cy.zoom();
-		else
-			var offset = (min + max) / 2 < lines.getDims(nodes[1])[type]["center"] ? max + (0.5*maxNode.height() + options.guidelinesStyle.distGuidelineOffset)*cy.zoom() : min - (0.5*minNode.height() + options.guidelinesStyle.distGuidelineOffset)*cy.zoom();
-
-		return offset;
-	}
-	/** Guidelines for horizontally distributed alignment
-	 * @param: node the node to be aligned
-	 */
-	lines.horizontalDistribution = function(node){
-		// variables
-		var leftNode = null, rightNode = null;
-		var nodeDim = lines.getDims(node);
-		var Xcenter = nodeDim["horizontal"]["center"];
-		var Ycenter = nodeDim["vertical"]["center"];
-		// Find nodes in range and check if they align
-		HTree.forEach(function(key, nodes){
-
-			for (var i = 0; i < nodes.length; i++){
-				var left = nodes[i];
-				var leftDim = lines.getDims(left);
-				if (Math.abs(leftDim["vertical"]["center"] - nodeDim["vertical"]["center"]) < options.guidelinesStyle.range*cy.zoom()){
-					if ((leftDim["horizontal"]["right"]) == key && 
-						nodeDim["horizontal"]["left"] - leftDim["horizontal"]["right"] > options.guidelinesStyle.minDistRange){
-						var ripo = Math.round(2*Xcenter)-key;
-						HTree.forEach(function($, rightNodes){
-							for (var j = 0; j < rightNodes.length; j++){
-								var right = rightNodes[j];
-								if (Math.abs(lines.getDims(right)["vertical"]["center"] - Ycenter) < options.guidelinesStyle.range*cy.zoom()){
-									if (Math.abs(ripo - lines.getDims(right)["horizontal"]["left"]) < 2*options.guidelinesTolerance){
-										leftNode = left; rightNode = right;
-									}
-								}
-							}
-						}, ripo - options.guidelinesTolerance, ripo + options.guidelinesTolerance);
-					}
-				}
-			}
-		}, Xcenter - options.guidelinesStyle.range*cy.zoom(), Xcenter);
-
-		// Draw the lines
-		if (leftNode){
-			alignedLocations.hd = Xcenter - (lines.getDims(rightNode)["horizontal"]["left"] + lines.getDims(leftNode)["horizontal"]["right"]) / 2.0;
-			if (!options.geometricGuideline || alignedLocations.h == null || Math.abs(alignedLocations.h) > Math.abs(alignedLocations.hd)){
-				alignedLocations.h = alignedLocations.hd;
-			}
-			var offset = calculateOffset([leftNode, node, rightNode], "vertical");
-
-			lines.drawLine({
-				x: lines.getDims(leftNode)["horizontal"]["right"],
-				y: offset
-			}, {
-				x: nodeDim["horizontal"]["left"],
-				y: offset
-			}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
-
-			lines.drawLine({
-				x: lines.getDims(rightNode)["horizontal"]["left"],
-				y: offset
-			}, {
-				x: nodeDim["horizontal"]["right"],
-				y: offset
-			}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
-
-			lines.drawLine({
-				x: lines.getDims(leftNode)["horizontal"]["right"],
-				y: offset
-			}, {
-				x: lines.getDims(leftNode)["horizontal"]["right"],
-				y: lines.getDims(leftNode)["vertical"]["center"]
-			}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
-
-			lines.drawLine({
-				x: lines.getDims(rightNode)["horizontal"]["left"],
-				y: offset
-			}, {
-				x: lines.getDims(rightNode)["horizontal"]["left"],
-				y: lines.getDims(rightNode)["vertical"]["center"]
-			}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
-
-			lines.drawLine({
-				x: nodeDim["horizontal"]["left"],
-				y: offset
-			}, {
-				x: nodeDim["horizontal"]["left"],
-				y: Ycenter
-			}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
-
-			lines.drawLine({
-				x: nodeDim["horizontal"]["right"],
-				y: offset
-			}, {
-				x: nodeDim["horizontal"]["right"],
-				y: Ycenter
-			}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
-
-			lines.drawArrow({
-				x: lines.getDims(leftNode)["horizontal"]["right"],
-				y: offset}, "left");
-
-			lines.drawArrow({
-				x: nodeDim["horizontal"]["left"],
-				y: offset}, "right");
-
-			lines.drawArrow({
-				x: nodeDim["horizontal"]["right"],
-				y: offset}, "left");
-
-			lines.drawArrow({
-				x: lines.getDims(rightNode)["horizontal"]["left"],
-				y: offset}, "right");
-
-		}
-		else{
-			var state = lines.horizontalDistributionNext(node,"left" );
-
-			if (!state)  
-				lines.horizontalDistributionNext(node,"right" );
-		}
-	}
-
-	/** Guidelines for horizontally distributed alignment
-	 * @param: node the node to be aligned
-	 */
-	lines.verticalDistribution = function(node){
-		// variables
-		var belowNode = null, aboveNode = null;
-		var nodeDim = lines.getDims(node);
-		var Xcenter = nodeDim["horizontal"]["center"];
-		var Ycenter = nodeDim["vertical"]["center"];
-		// Find nodes in range and check if they align
-		VTree.forEach(function(key, nodes){
-
-			for (var i = 0; i < nodes.length; i++){
-				var below = nodes[i];
-				var belowDim = lines.getDims(below);
-				if (Math.abs(belowDim["horizontal"]["center"] - nodeDim["horizontal"]["center"]) < options.guidelinesStyle.range*cy.zoom()){
-					if (belowDim["vertical"]["bottom"] == key &&
-						nodeDim["vertical"]["top"] - belowDim["vertical"]["bottom"] > options.guidelinesStyle.minDistRange){
-						var abpo = Math.round((2*Ycenter)-key);
-						VTree.forEach(function($, aboveNodes){
-							//if (aboveNodes){
-							for (var j = 0; j < aboveNodes.length; j++){
-								var above = aboveNodes[j];
-								if (Math.abs(lines.getDims(above)["horizontal"]["center"] - Xcenter) < options.guidelinesStyle.range*cy.zoom()){
-									if (Math.abs(abpo - lines.getDims(above)["vertical"]["top"]) < 2*options.guidelinesTolerance){
-										belowNode = below; aboveNode = above;
-									}
-								}
-							}
-							//}
-						}, abpo - options.guidelinesTolerance, abpo + options.guidelinesTolerance);
-					}
-				}
-			}
-		}, Ycenter - options.guidelinesStyle.range*cy.zoom(), Ycenter);
-
-		if (belowNode){
-			alignedLocations.vd = Ycenter - (lines.getDims(belowNode)["vertical"]["bottom"] + lines.getDims(aboveNode)["vertical"]["top"]) / 2.0;
-			if (!options.geometricGuideline || alignedLocations.v == null || Math.abs(alignedLocations.v) > Math.abs(alignedLocations.vd)){
-				alignedLocations.v = alignedLocations.vd;
-			}
-			var offset = calculateOffset([belowNode, node, aboveNode], "horizontal");
-			lines.drawLine({
-				y: lines.getDims(belowNode)["vertical"]["bottom"],//renderedPosition("x"),
-				x: offset
-			}, {
-				y: nodeDim["vertical"]["top"],
-				x: offset
-			}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
-
-			lines.drawLine({
-				y: lines.getDims(aboveNode)["vertical"]["top"],//renderedPosition("x"),
-				x: offset
-			}, {
-				y: nodeDim["vertical"]["bottom"],
-				x: offset
-			}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
-
-			lines.drawLine({
-				y: lines.getDims(belowNode)["vertical"]["bottom"],//renderedPosition("x"),
-				x: offset
-			}, {
-				y: lines.getDims(belowNode)["vertical"]["bottom"],
-				x: lines.getDims(belowNode)["horizontal"]["center"]
-			}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
-
-			lines.drawLine({
-				y: lines.getDims(aboveNode)["vertical"]["top"],//renderedPosition("x"),
-				x: offset
-			}, {
-				y: lines.getDims(aboveNode)["vertical"]["top"],
-				x: lines.getDims(aboveNode)["horizontal"]["center"]
-			}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
-
-			lines.drawLine({
-				y: nodeDim["vertical"]["bottom"],//renderedPosition("x"),
-				x: offset
-			}, {
-				y: nodeDim["vertical"]["bottom"],//renderedPosition("x"),
-				x: Xcenter
-			}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
-
-			lines.drawLine({
-				y: nodeDim["vertical"]["top"],//renderedPosition("x"),
-				x: offset
-			}, {
-				y: nodeDim["vertical"]["top"],//renderedPosition("x"),
-				x: Xcenter
-			}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
-
-			lines.drawArrow({
-				x: offset,
-				y: lines.getDims(belowNode)["vertical"]["bottom"]}, "top");
-
-			lines.drawArrow({
-				x: offset,
-				y: nodeDim["vertical"]["top"]}, "bottom");
-
-			lines.drawArrow({
-				x: offset,
-				y: lines.getDims(aboveNode)["vertical"]["top"]}, "bottom");
-
-			lines.drawArrow({
-				x: offset,
-				y: nodeDim["vertical"]["bottom"]}, "top");
-		}
-		else{
-			var state = lines.verticalDistributionNext(node,"below" );
-
-			if (!state)  
-				lines.verticalDistributionNext(node,"above" );
-		}
-	}    
-
-	/**
-	 * Find geometric alignment lines and draw them
-	 * @param type: horizontal or vertical
-	 * @param node: the node to be aligned
-	 */
-	lines.searchForLine = function (type, node) {
-
-		// variables
-		var position, target, center, axis, otherAxis, Tree, closestKey;
-		var dims = lines.getDims(node)[type];
-		var targetKey = Number.MAX_SAFE_INTEGER;
-
-		// initialize Tree
-		if ( type == "horizontal"){
-			Tree = HTree;
-			axis = "y";
-			otherAxis = "x";
-			alignedLocations.h = null;
-		} else{
-			Tree = VTree;
-			axis = "x";
-			otherAxis = "y";
-			alignedLocations.v = null;
-		}
-
-		center = node.renderedPosition(axis);
-		// check if node aligned in any dimension:
-		// {center, left, right} or {center, top, bottom}
-		for (var dimKey in dims) {
-			position = dims[dimKey];
-
-			// find the closest alignment in range of tolerance
-			Tree.forEach(function (exKey, nodes) {
-				for (var i = 0; i < nodes.length; i++){
-					var n = nodes[i];
-					if (options.centerToEdgeAlignment || (dimKey != "center" && n.renderedPosition(otherAxis) != exKey) || (dimKey == "center" && n.renderedPosition(otherAxis) == exKey)){
-						var dif = Math.abs(center - n.renderedPosition(axis));
-						if ( dif < targetKey && dif < options.guidelinesStyle.geometricGuidelineRange*cy.zoom()){
-							target = n;
-							targetKey = dif;
-							closestKey = exKey;
-						}
-					}
-				}
-			}, position - Number(options.guidelinesTolerance), position + Number(options.guidelinesTolerance));
-
-			// if alignment found, draw lines and break
-			if (target) {
-				targetKey = lines.getDims(node)[type][dimKey];
-
-				// Draw horizontal or vertical alignment line
-				if (type == "horizontal") {
-					alignedLocations.h = targetKey - closestKey;
-					lines.drawLine({
-						x: targetKey,
-						y: node.renderedPosition("y")
-					}, {
-						x: targetKey,
-						y: target.renderedPosition("y")
-					}, options.guidelinesStyle.strokeStyle, options.guidelinesStyle.lineDash);
-				} else {
-					alignedLocations.v = targetKey - closestKey;
-					lines.drawLine({
-						x: node.renderedPosition("x"),
-						y: targetKey
-					}, {
-						x: target.renderedPosition("x"),
-						y: targetKey
-					}, options.guidelinesStyle.strokeStyle, options.guidelinesStyle.lineDash);
-				}
-				break;
-			}
-		}
-	};
-
-	lines.horizontalDistributionNext = function(node, type){
-
-		// variables
-		var leftNode = null, rightNode = null;
-		var nodeDim = lines.getDims(node);
-		var Xcenter = nodeDim["horizontal"]["center"];
-		var Ycenter = nodeDim["vertical"]["center"];
-		var side = "right", otherSide = "left";
-		var lowerBound = Xcenter;
-		if (type == "left"){
-			side = "left"; otherSide = "right";
-			var lowerBound = Xcenter - options.guidelinesStyle.range*cy.zoom();
-		}
-
-		var compare = {
-			"left": function (x, y) { return y - x > options.guidelinesStyle.minDistRange},
-			"right": function (x, y) { return x - y > options.guidelinesStyle.minDistRange}
-		}
-
-		// Find nodes in range and check if they align
-		HTree.forEach(function(key, nodes){
-			for (var i = 0; i < nodes.length; i++){
-				var left = nodes[i];
-				var leftDim = lines.getDims(left);
-				if (Math.abs(leftDim["vertical"]["center"] - nodeDim["vertical"]["center"]) < options.guidelinesStyle.range*cy.zoom()){
-					if ((leftDim["horizontal"][otherSide]) == key && 
-						compare[type](leftDim["horizontal"][otherSide], nodeDim["horizontal"][side])){
-						var ll = leftDim["horizontal"][side]-(nodeDim["horizontal"][side] - key);
-						HTree.forEach(function($, rightNodes){
-							for (var j = 0; j < rightNodes.length; j++){
-								var right = rightNodes[j];
-								if (Math.abs(lines.getDims(right)["vertical"]["center"] - Ycenter) < options.guidelinesStyle.range*cy.zoom()){
-									if (Math.abs(ll - lines.getDims(right)["horizontal"][otherSide]) < 2*options.guidelinesTolerance){
-										leftNode = left; rightNode = right;
-									}
-								}
-							}
-						}, ll - options.guidelinesTolerance, ll + options.guidelinesTolerance);
-					}
-				}
-			}
-		}, lowerBound, lowerBound + options.guidelinesStyle.range*cy.zoom());
-
-		// Draw the lines
-		if (leftNode){
-			alignedLocations.hd =(lines.getDims(node)["horizontal"][side] - lines.getDims(leftNode)["horizontal"][otherSide]) - (lines.getDims(leftNode)["horizontal"][side] - lines.getDims(rightNode)["horizontal"][otherSide]);
-			if (!options.geometricGuideline || alignedLocations.h == null || Math.abs(alignedLocations.h) > Math.abs(alignedLocations.hd)){
-				alignedLocations.h = alignedLocations.hd;
-			}
-
-			lines.drawDH(node, leftNode, rightNode, type);
-			return true;
-		}
-		else if (!options.geometricGuideline){
-			alignedLocations.h = null;
-		}
-		return false;
-
-	}
-
-	lines.drawDH = function(node, leftNode, rightNode, type){
-		var Ycenter = lines.getDims(node)["vertical"]["center"];
-		var side = "right", otherSide = "left";
-		if (type == "left"){
-			side = "left"; otherSide = "right";
-		}
-		var offset = calculateOffset([leftNode, node, rightNode], "vertical");
-
-		lines.drawLine({
-			x: lines.getDims(leftNode)["horizontal"][otherSide],
-			y: offset
-		}, {
-			x: lines.getDims(node)["horizontal"][side],
-			y: offset
-		}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
-
-		lines.drawLine({
-			x: lines.getDims(node)["horizontal"][side],
-			y: offset
-		}, {
-			x: lines.getDims(node)["horizontal"][side],
-			y: Ycenter,//lines.getDims(leftNode)["vertical"]["center"]
-		}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
-
-		lines.drawLine({
-			x: lines.getDims(rightNode)["horizontal"][otherSide],
-			y: offset
-		}, {
-			x: lines.getDims(leftNode)["horizontal"][side],
-			y: offset
-		}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
-		lines.drawLine({
-			x: lines.getDims(rightNode)["horizontal"][otherSide],
-			y: offset
-		}, {
-			x: lines.getDims(rightNode)["horizontal"][otherSide],
-			y: lines.getDims(rightNode)["vertical"]["center"]
-		}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
-
-		lines.drawLine({
-			x: lines.getDims(leftNode)["horizontal"][otherSide],
-			y: offset
-		}, {
-			x: lines.getDims(leftNode)["horizontal"][otherSide],
-			y: lines.getDims(leftNode)["vertical"]["center"]
-		}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
-
-		lines.drawLine({
-			x: lines.getDims(leftNode)["horizontal"][side],
-			y: offset
-		}, {
-			x: lines.getDims(leftNode)["horizontal"][side],
-			y: lines.getDims(leftNode)["vertical"]["center"]
-		}, options.guidelinesStyle.horizontalDistColor, options.guidelinesStyle.horizontalDistLine);
-
-
-		lines.drawArrow({
-			x: lines.getDims(node)["horizontal"][side],
-			y: offset}, otherSide);
-
-		lines.drawArrow({
-			x: lines.getDims(leftNode)["horizontal"][otherSide],
-			y: offset}, side);
-
-		lines.drawArrow({
-			x: lines.getDims(leftNode)["horizontal"][side],
-			y: offset}, otherSide);
-
-		lines.drawArrow({
-			x: lines.getDims(rightNode)["horizontal"][otherSide],
-			y: offset}, side);
-
-	}
-
-	lines.verticalDistributionNext = function(node, type){
-		// variables
-		var belowNode = null, aboveNode = null;
-		var nodeDim = lines.getDims(node);
-		var Xcenter = nodeDim["horizontal"]["center"];
-		var Ycenter = nodeDim["vertical"]["center"];
-		var side = "top", otherSide = "bottom";
-		var lowerBound = Ycenter - options.guidelinesStyle.range*cy.zoom();
-		if (type == "above"){
-			side = "bottom"; otherSide = "top";
-			lowerBound = Ycenter;
-		}
-
-		var compare = {
-			"below": function (x, y) { return y - x > options.guidelinesStyle.minDistRange},
-			"above": function (x, y) { return x - y > options.guidelinesStyle.minDistRange}
-		}
-		// Find nodes in range and check if they align
-		VTree.forEach(function(key, nodes){
-			for (var i = 0; i < nodes.length; i++){
-				var below = nodes[i];
-				var belowDim = lines.getDims(below);
-				if (Math.abs(belowDim["horizontal"]["center"] - nodeDim["horizontal"]["center"]) < options.guidelinesStyle.range*cy.zoom()){
-					if (belowDim["vertical"][otherSide] == key &&
-						compare[type](belowDim["vertical"][otherSide], nodeDim["vertical"][side])){
-						var ll = belowDim["vertical"][side]-(nodeDim["vertical"][side]-key);
-						VTree.forEach(function($, aboveNodes){
-							for (var j = 0; j < aboveNodes.length; j++){
-								var above = aboveNodes[j];
-								if (Math.abs(lines.getDims(above)["horizontal"]["center"] - Xcenter) < options.guidelinesStyle.range*cy.zoom()){
-									if (Math.abs(ll - lines.getDims(above)["vertical"][otherSide]) < 2*options.guidelinesTolerance){
-										belowNode = below; aboveNode = above;
-									}
-								}
-							}
-						}, ll - options.guidelinesTolerance, ll + options.guidelinesTolerance);
-					}
-				}
-			}
-		}, lowerBound, lowerBound+options.guidelinesStyle.range*cy.zoom());
-
-		if (belowNode){
-			alignedLocations.vd =(lines.getDims(node)["vertical"][side] - lines.getDims(belowNode)["vertical"][otherSide]) - (lines.getDims(belowNode)["vertical"][side] - lines.getDims(aboveNode)["vertical"][otherSide]);
-			if (!options.geometricGuideline || alignedLocations.v == null || Math.abs(alignedLocations.v) > Math.abs(alignedLocations.vd)){
-				alignedLocations.v = alignedLocations.vd;
-			}
-			lines.drawDV(node, belowNode, aboveNode, type);
-			return true;
-		}
-		else if (!options.geometricGuideline){
-			alignedLocations.v = null;
-		}
-		return false;
-	}
-
-
-
-	lines.drawDV = function(node, belowNode, aboveNode, type){
-		var nodeDim = lines.getDims(node);
-		var Xcenter = nodeDim["horizontal"]["center"];
-		var side = "top", otherSide = "bottom";
-		if (type == "above"){
-			side = "bottom"; otherSide = "top";
-		}
-
-		var offset = calculateOffset([belowNode, node, aboveNode], "horizontal");
-		lines.drawLine({
-			x: offset,
-			y: nodeDim["vertical"][side]
-		}, {
-			x: offset,
-			y: lines.getDims(belowNode)["vertical"][otherSide]
-		}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
-
-		lines.drawLine({
-			x: offset,
-			y: lines.getDims(belowNode)["vertical"][side]
-		}, {
-			x: offset,
-			y: lines.getDims(aboveNode)["vertical"][otherSide]
-		}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
-
-		lines.drawLine({
-			x: Xcenter,
-			y: nodeDim["vertical"][side]
-		}, {
-			x: offset,
-			y: nodeDim["vertical"][side]
-		}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
-
-		lines.drawLine({
-			x: lines.getDims(belowNode)["horizontal"]["center"],
-			y: lines.getDims(belowNode)["vertical"][otherSide]
-		}, {
-			x: offset,
-			y: lines.getDims(belowNode)["vertical"][otherSide]
-		}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
-
-		lines.drawLine({
-			x: lines.getDims(belowNode)["horizontal"]["center"],
-			y: lines.getDims(belowNode)["vertical"][side]
-		}, {
-			x: offset,
-			y: lines.getDims(belowNode)["vertical"][side]
-		}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
-
-		lines.drawLine({
-			x: offset,//lines.getDims(aboveNode)["horizontal"]["center"],
-			y: lines.getDims(aboveNode)["vertical"][otherSide]
-		}, {
-			x: lines.getDims(aboveNode)["horizontal"]["center"],
-			y: lines.getDims(aboveNode)["vertical"][otherSide]
-		}, options.guidelinesStyle.verticalDistColor, options.guidelinesStyle.verticalDistLine);
-
-		lines.drawArrow({
-			x: offset,
-			y: nodeDim["vertical"][side]}, otherSide);
-
-		lines.drawArrow({
-			x: offset,
-			y: lines.getDims(belowNode)["vertical"][otherSide]}, side);
-
-		lines.drawArrow({
-			x: offset,
-			y: lines.getDims(belowNode)["vertical"][side]}, otherSide);
-
-		lines.drawArrow({
-			x: offset,
-			y: lines.getDims(aboveNode)["vertical"][otherSide]}, side);
-
-	}
-	lines.update = function (activeNodes) {
-		lines.clear();
-
-		if (options.initPosAlignment){
-			mouseLine(activeNodes);
-		}
-
-    if (activeNodes)
-      activeNodes.each(function (node, i) {
-        if(typeof node === "number") {
-          node = i;
-        }
-        if (options.geometricGuideline){
-          lines.searchForLine("horizontal", node);
-          lines.searchForLine("vertical", node);
-        }
-
-        if (options.distributionGuidelines){
-          lines.horizontalDistribution(node);
-          lines.verticalDistribution(node);
-        }
-      });
-
-	};
-
-	lines.resize = function () {
-		resizeCanvas();
-	};
-
-	function getTopMostNodes(nodes) {
-		var nodesMap = {};
-
-		for (var i = 0; i < nodes.length; i++) {
-			nodesMap[nodes[i].id()] = true;
-		}
-
-		var roots = nodes.filter(function (ele, i) {
-			if(typeof ele === "number") {
-				ele = i;
-			}
-
-			var parent = ele.parent()[0];
-			while (parent != null) {
-				if (nodesMap[parent.id()]) {
-					return false;
-				}
-				parent = parent.parent()[0];
-			}
-			return true;
-		});
-
-		return roots;
-	}
-
-	var mouseInitPos = {};
-	var mouseRelativePos = {};
-	var getMousePos = function(e){
-		mouseInitPos = e.renderedPosition || e.cyRenderedPosition;
-		mouseRelativePos.x = mouseInitPos.x;
-		mouseRelativePos.y = mouseInitPos.y;
-	}
-	var setMousePos = function(panCurrPos){
-		mouseRelativePos.x += (panCurrPos.x - panInitPos.x);
-		mouseRelativePos.y += (panCurrPos.y - panInitPos.y);
-		panInitPos.x = panCurrPos.x; panInitPos.y = panCurrPos.y;
-	};
-	var mouseLine = function(node){
-		var nodeCurrentPos = node.renderedPosition();	
-		if (Math.abs(nodeInitPos.y - nodeCurrentPos.y) < options.guidelinesTolerance){
-			lines.drawLine({
-				"x" : mouseRelativePos.x,
-				"y" : mouseInitPos.y
-			}, {
-				"x" : nodeCurrentPos.x,
-				"y" : mouseInitPos.y
-			}, options.guidelinesStyle.initPosAlignmentColor, options.guidelinesStyle.initPosAlignmentLine);
-			if (mouseInitPos.y == mouseRelativePos.y){
-				lines.drawCross(mouseRelativePos);
-			}
-			else{
-				lines.drawCross(mouseInitPos);
-			}
-		}
-		else if (Math.abs(nodeInitPos.x - nodeCurrentPos.x) < options.guidelinesTolerance){
-			lines.drawLine({
-				"x" : mouseInitPos.x,
-				"y" : mouseRelativePos.y
-			}, {
-				"x" : mouseInitPos.x,
-				"y" : nodeCurrentPos.y
-			}, options.guidelinesStyle.initPosAlignmentColor, options.guidelinesStyle.initPosAlignmentLine);
-			if (mouseInitPos.x == mouseRelativePos.x){
-				lines.drawCross(mouseRelativePos);
-			}
-			else{
-				lines.drawCross(mouseInitPos);
-			}
-		}
-	}
-
-	function moveNodes(positionDiff, nodes) {
-		// Get the descendants of top most nodes. Note that node.position() can move just the simple nodes.
-		var topMostNodes = getTopMostNodes(nodes);
-		var nodesToMove = topMostNodes.union(topMostNodes.descendants());
-
-		nodesToMove.filter(":childless").forEach(function(node, i) {
-			if(typeof node === "number") {
-				node = i;
-			}
-			var newPos = {x: positionDiff.x + node.renderedPosition("x"),
-				y: positionDiff.y + node.renderedPosition("y")};
-
-			node.renderedPosition(newPos);
-		});
-	}
-
-	var tappedNode;
-	cy.on("tapstart", "node", function(){tappedNode = this});
-
-	var currMousePos, oldMousePos = {"x": 0, "y": 0};
-	cy.on("mousemove", function(e){
-		currMousePos = e.renderedPosition || e.cyRenderedPosition;
-		if (nodeToAlign)
-			nodeToAlign.each(function (node, i){
-				if(typeof node === "number") {
-					node = i;
-				}
-				if (node.locked() && (Math.abs(currMousePos.x - oldMousePos.x) > 2*options.guidelinesTolerance
-					|| Math.abs(currMousePos.y - oldMousePos.y) > 2*options.guidelinesTolerance)){
-
-					node.unlock();
-					var diff = {};
-					diff.x = currMousePos.x - tappedNode.renderedPosition("x");
-					diff.y = currMousePos.y - tappedNode.renderedPosition("y");;
-					moveNodes(diff, node);
-				};
-			});
-
-	});
-	var nodeToAlign;
-	lines.snapToAlignmentLocation = function(activeNodes){
-		nodeToAlign = activeNodes;
-    if(activeNodes){
-      activeNodes.each(function (node, i){
-        if(typeof node === "number") {
-          node = i;
-        }
-        var newPos = node.renderedPosition();
-        if (alignedLocations.h){
-          oldMousePos = currMousePos;
-          newPos.x -= alignedLocations.h;
-          node.renderedPosition(newPos);
-        }
-        if (alignedLocations.v){
-          oldMousePos = currMousePos;
-          newPos.y -= alignedLocations.v;
-          node.renderedPosition(newPos);
-        };
-        if (alignedLocations.v || alignedLocations.h){
-          alignedLocations.h = null;
-          alignedLocations.v = null;
-          nodeToAlign.lock();
-        }
-      });
-      lines.update(activeNodes);
-    }
-	}
-
-	return {
-		changeOptions: changeOptions,
-		lines: lines,
-		getTopMostNodes: getTopMostNodes,
-		getMousePos: getMousePos,
-		setMousePos: setMousePos,
-		resizeCanvas: resizeCanvas,
-		resetCanvas: resetCanvas,
-	}
-};
-
-},{"functional-red-black-tree":1}],8:[function(require,module,exports){
-;(function(){ 'use strict';
-
-	// registers the extension on a cytoscape lib ref
-	var register = function(cytoscape){
-
-		if(!cytoscape){ return; } // can't register if cytoscape unspecified
-		require("./extend");
-
-		// flag that indicates if extension api functions are registed to cytoscape
-		// note that ideally these functions should not be directly registered to core from cytoscape.js
-		// extensions
-		var apiRegistered = false;
-
-		var defaults = {
-			// On/Off Modules
-			/* From the following four snap options, at most one should be true at a given time */
-			snapToGridOnRelease: true, // Snap to grid on release
-			snapToGridDuringDrag: false, // Snap to grid during drag
-			snapToAlignmentLocationOnRelease: false, // Snap to alignment location on release
-			snapToAlignmentLocationDuringDrag: false, // Snap to alignment location during drag
-			distributionGuidelines: false, //Distribution guidelines
-			geometricGuideline: false, // Geometric guidelines
-			initPosAlignment: false, // Guideline to initial mouse position
-			centerToEdgeAlignment: false, // Center tı edge alignment
-			resize: false, // Adjust node sizes to cell sizes
-			parentPadding: false, // Adjust parent sizes to cell sizes by padding
-			drawGrid: true, // Draw grid background
-
-			// General
-			gridSpacing: 20, // Distance between the lines of the grid.
-			snapToGridCenter: true, // Snaps nodes to center of gridlines. When false, snaps to gridlines themselves.
-			zoomDash: true, // Determines whether the size of the dashes should change when the drawing is zoomed in and out if grid is drawn.
-			panGrid: false, // Determines whether the grid should move then the user moves the graph if grid is drawn.
-			gridStackOrder: -1, // Namely z-index
-			gridColor: '#dedede', // Color of grid lines
-			lineWidth: 1.0, // Width of grid lines
-			guidelinesStackOrder: 4, // z-index of guidelines
-			guidelinesTolerance: 2.00, // Tolerance distance for rendered positions of nodes' interaction.
-			guidelinesStyle: { // Set ctx properties of line. Properties are here:
-				strokeStyle: "#8b7d6b", // color of geometric guidelines
-				geometricGuidelineRange: 400, // range of geometric guidelines
-				range: 100, // max range of distribution guidelines
-				minDistRange: 10, // min range for distribution guidelines
-				distGuidelineOffset: 10, // shift amount of distribution guidelines
-				horizontalDistColor: "#ff0000", // color of horizontal distribution alignment
-				verticalDistColor: "#00ff00", // color of vertical distribution alignment
-				initPosAlignmentColor: "#0000ff", // color of alignment to initial location
-				lineDash: [0, 0], // line style of geometric guidelines
-				horizontalDistLine: [0, 0], // line style of horizontal distribıtion guidelines
-				verticalDistLine: [0, 0], // line style of vertical distribıtion guidelines
-				initPosAlignmentLine: [0, 0], // line style of alignment to initial mouse position
-			},
-
-			// Parent Padding
-			parentSpacing: -1 // -1 to set paddings of parents to gridSpacing
-		};
-		var _snapOnRelease = require("./snap_on_release");
-		var _snapToGridDuringDrag = require("./snap_during_drag");
-		var _drawGrid = require("./draw_grid");
-		var _resize = require("./resize");
-		var _eventsController = require("./events_controller");
-		var _guidelines = require("./guidelines");
-		var _parentPadding = require("./parentPadding");
-		var _alignment = require("./alignment");
-		var debounce = require("./debounce");
-
-		function getScratch(cy) {
-			if (!cy.scratch("_gridGuide")) {
-				cy.scratch("_gridGuide", { });
-			}
-
-			return cy.scratch("_gridGuide");
-		}
-
-		cytoscape( 'core', 'gridGuide', function(opts){
-			var cy = this;
-
-			// access the scratch pad for cy
-			var scratchPad = getScratch(cy);
-
-			// extend the already existing options for the instance or the default options
-			var options = Object.extend({}, scratchPad.options || defaults, opts);
-
-			// reset the options for the instance
-			scratchPad.options = options;
-
-			if (!scratchPad.initialized) {
-
-				var snap, resize, snapToGridDuringDrag, drawGrid, eventsController, guidelines, parentPadding, alignment;
-
-				snap = _snapOnRelease(cy, options.gridSpacing, options.snapToGridCenter);
-				resize = _resize(options.gridSpacing);
-				snapToGridDuringDrag = _snapToGridDuringDrag(cy, snap);
-				drawGrid = _drawGrid(options, cy, debounce);
-				guidelines = _guidelines(options, cy, debounce);
-				parentPadding = _parentPadding(options, cy);
-
-				eventsController = _eventsController(cy, snap, resize, snapToGridDuringDrag, drawGrid, guidelines, parentPadding, options);
-
-				alignment = _alignment(cytoscape, cy, apiRegistered);
-
-				// mark that api functions are registered to cytoscape
-				apiRegistered = true;
-
-				eventsController.init(options);
-
-				// init params in scratchPad
-				scratchPad.initialized = true;
-				scratchPad.eventsController = eventsController;
-			}
-			else {
-				var eventsController = scratchPad.eventsController;
-				eventsController.syncWithOptions(options);
-			}
-
-			return this; // chainability
-		} ) ;
-
-	};
-
-	if( typeof module !== 'undefined' && module.exports ){ // expose as a commonjs module
-		module.exports = register;
-	}
-
-	if( typeof define !== 'undefined' && define.amd ){ // expose as an amd/requirejs module
-		define('cytoscape-grid-guide', function(){
-			return register;
-		});
-	}
-
-	if( typeof cytoscape !== 'undefined' ){ // expose to global cytoscape (i.e. window.cytoscape)
-		register( cytoscape );
-	}
-
-})();
-
-},{"./alignment":2,"./debounce":3,"./draw_grid":4,"./events_controller":5,"./extend":6,"./guidelines":7,"./parentPadding":9,"./resize":10,"./snap_during_drag":11,"./snap_on_release":12}],9:[function(require,module,exports){
-module.exports = function (opts, cy) {
-
-    var options = opts;
-    var ppClass = "_gridParentPadding";
-    var padding;
-
-    function initPadding() {
-        cy.style()
-            .selector('.' + ppClass)
-            .style("compound-sizing-wrt-labels", "exclude")
-            .style("padding-left", padding)
-            .style("padding-right", padding)
-            .style("padding-top", padding)
-            .style("padding-bottom", padding)
-            .update();
-
-    }
-
-    function changeOptions(opts) {
-        options = opts;
-        padding = options.parentSpacing < 0 ? options.gridSpacing : options.parentSpacing;
-        initPadding();
-    }
-
-    function setPaddingOfParent(node, enable) {
-        if (enable)
-            node.addClass(ppClass);
-        else
-            node.removeClass(ppClass);
-    }
-
-    return {
-        changeOptions: changeOptions,
-        setPaddingOfParent: setPaddingOfParent
-    };
-};
-},{}],10:[function(require,module,exports){
-module.exports = function (gridSpacing) {
-
-
-    var changeOptions = function (opts) {
-        gridSpacing = Number(opts.gridSpacing);
-    };
-
-    var getScratch = function (node) {
-        if (!node.scratch("_gridGuide"))
-            node.scratch("_gridGuide", {});
-
-        return node.scratch("_gridGuide");
-    };
-
-    function resizeNode(node) {
-        var width = node.width();
-        var height = node.height();
-
-        var newWidth = Math.round((width - gridSpacing) / (gridSpacing * 2)) * (gridSpacing * 2);
-        var newHeight = Math.round((height - gridSpacing) / (gridSpacing * 2)) * (gridSpacing * 2);
-        newWidth = newWidth > 0 ? newWidth + gridSpacing : gridSpacing;
-        newHeight = newHeight > 0 ? newHeight + gridSpacing : gridSpacing;
-
-        if (width != newWidth || height != newHeight) {
-            node.style({
-                "width": newWidth,
-                "height": newHeight
-            });
-            getScratch(node).resize = {
-                oldWidth: width,
-                oldHeight: height
-            };
-        }
-    }
-
-    function recoverNodeDimensions(node) {
-        var oldSizes = getScratch(node).resize;
-        if (oldSizes) 
-            node.style({
-                "width": oldSizes.oldWidth,
-                "height": oldSizes.oldHeight
-            });
-
-
-    }
-
-
-    return {
-        resizeNode: resizeNode,
-        recoverNodeDimensions: recoverNodeDimensions,
-        changeOptions: changeOptions
-    };
-
-};
-},{}],11:[function(require,module,exports){
-module.exports = function (cy, snap) {
-
-    var snapToGridDuringDrag = {};
-
-    var attachedNode;
-    var draggedNodes;
-
-    var startPos;
-    var endPos;
-
-    snapToGridDuringDrag.onTapStartNode = function (e) {
-        // If user intends to do box selection, then return. Related issue #28
-        if (e.originalEvent.altKey || e.originalEvent.ctrlKey
-                || e.originalEvent.metaKey || e.originalEvent.shiftKey){
-            return;
-        }
-
-        var cyTarget = e.target || e.cyTarget;
-        if (cyTarget.selected())
-            draggedNodes = e.cy.$(":selected");
-        else
-            draggedNodes = cyTarget;
-
-        startPos = e.position || e.cyPosition;
-
-        if (cyTarget.grabbable() && !cyTarget.locked()){
-          attachedNode = cyTarget;
-          attachedNode.lock();
-          //attachedNode.trigger("grab");
-          cy.on("tapdrag", onTapDrag);
-          cy.on("tapend", onTapEndNode);
-        }
-    };
-
-    var onTapEndNode = function (e) {
-        //attachedNode.trigger("free");
-        cy.off("tapdrag", onTapDrag);
-        cy.off("tapend", onTapEndNode);
-        attachedNode.unlock();
-        e.preventDefault();
-    };
-
-    var getDist = function () {
-        return {
-            x: endPos.x - startPos.x,
-            y: endPos.y - startPos.y
-        }
-    };
-
-    var onTapDrag = function (e) {
-
-        var nodePos = attachedNode.position();
-        endPos = e.position || e.cyPosition;
-        endPos = snap.snapPos(endPos);
-        var dist = getDist();
-        if (dist.x != 0 || dist.y != 0) {
-            attachedNode.unlock();
-            var nodes = draggedNodes.union(draggedNodes.descendants());
-
-            nodes.filter(":childless").positions(function (node, i) {
-                if(typeof node === "number") {
-                  node = i;
-                }
-                var pos = node.position();
-                return snap.snapPos({
-                    x: pos.x + dist.x,
-                    y: pos.y + dist.y
-                });
-            });
-
-            startPos = endPos;
-            attachedNode.lock();
-            attachedNode.trigger("drag");
-        }
-
-    };
-
-    return snapToGridDuringDrag;
-
-
-};
-
-},{}],12:[function(require,module,exports){
-module.exports = function (cy, gridSpacing, gridSpacingOffset) {
-
-    var snap = { };
-
-    snap.changeOptions = function (opts) {
-        gridSpacing = opts.gridSpacingSmall;
-        gridSpacingOffset = opts.snapToGridCenter ? 0.5 : 0;
-    };
-
-    var getScratch = function (node) {
-        if (!node.scratch("_gridGuide"))
-            node.scratch("_gridGuide", {});
-
-        return node.scratch("_gridGuide");
-    };
-
-    snap.snapPos = function (pos) {
-        var xPosition = gridSpacingOffset ? Math.floor(pos.x / gridSpacing) : Math.round(pos.x / gridSpacing);
-        var yPosition = gridSpacingOffset ? Math.floor(pos.y / gridSpacing) : Math.round(pos.y / gridSpacing);
-        var newPos = {
-            x: (xPosition + gridSpacingOffset) * gridSpacing,
-            y: (yPosition + gridSpacingOffset) * gridSpacing
-        };
-
-        return newPos;
-    };
-
-    snap.snapNode = function (node) {
-
-        var pos = node.position();
-        var newPos = snap.snapPos(pos);
-
-        node.position(newPos);
-    };
-
-    snap.snapNodesTopDown = function (nodes) {
-        // getTOpMostNodes -> nodes
-        cy.startBatch();
-        nodes.union(nodes.descendants()).filter(":childless").positions(function (node, i) {
-            if(typeof node === "number") {
-              node = i;
-            }
-            var pos = node.position();
-            return snap.snapPos(pos);
-        });
-        cy.endBatch();
-    };
-
-    snap.onFreeNode = function (e) {
-        var nodes;
-        var cyTarget = e.target || e.cyTarget;
-        if (cyTarget.selected())
-            nodes = e.cy.$(":selected");
-        else
-            nodes = cyTarget;
-
-        snap.snapNodesTopDown(nodes);
-
-    };
-
-
-    snap.recoverSnapNode = function (node) {
-        var snapScratch = getScratch(node).snap;
-        if (snapScratch) {
-            node.position(snapScratch.oldPos);
-        }
-    };
-
-    return snap;
-
-
-
-
-
-};
-
-},{}]},{},[8]);
+},{}]},{},[7]);

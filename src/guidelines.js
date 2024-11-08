@@ -33,7 +33,7 @@ module.exports = function (opts, cy, debounce) {
 
 	/* Resize canvas */
 	var resizeCanvas = debounce(function () {
-		clearDrawing();
+		// clearDrawing();
 		$canvas.height = cy.height();
 		$canvas.width = cy.width();
 		$canvas.style.position = 'absolute';
@@ -57,7 +57,7 @@ module.exports = function (opts, cy, debounce) {
 	var clearDrawing = function () {
 		var width = cy.width();
 		var height = cy.height();
-		ctx.clearRect(0, 0, width, height);
+		// ctx.clearRect(0, 0, width, height);
 	};
 
 	/* Create a canvas */
@@ -163,7 +163,7 @@ module.exports = function (opts, cy, debounce) {
 
 	/* Destroy gobal variables */
 	lines.destroy = function () {
-		lines.clear();
+		// lines.clear();
 		VTree = null; HTree = null;
 		nodeInitPos = null;
 		mouseInitPos = {};
