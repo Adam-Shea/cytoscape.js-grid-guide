@@ -23,7 +23,6 @@ module.exports = function(cy, gridSpacing, gridSpacingOffset) {
         y: ((yPosition + gridSpacingOffset) * gridSpacing) + (height / 2)
       };
     } else {
-      console.log("hi")
       var newPos = {
         x: (xPosition + gridSpacingOffset) * gridSpacing,
         y: (yPosition + gridSpacingOffset) * gridSpacing

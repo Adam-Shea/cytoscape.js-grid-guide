@@ -2084,14 +2084,7 @@ module.exports = function(gridSpacing) {
     newHeight = newHeight > 0 ? newHeight + gridSpacing : gridSpacing;
 
     if (width != newWidth || height != newHeight) {
-      console.log("--------------------")
-      console.log("id", node.id())
-      console.log("width", width)
-      console.log("widthDif", widthDif)
-      console.log("newWidth", newWidth)
-      console.log("children", node.children().length)
       if (node.children().length > 0) {
-        console.log("-> update width")
         node.style({
           "min-width": newWidth - widthDif,
           "min-height": newHeight - heightDif
@@ -2102,7 +2095,6 @@ module.exports = function(gridSpacing) {
           "height": newHeight - heightDif
         });
       }
-      console.log("outer", node.outerWidth())
       getScratch(node).resize = {
         oldWidth: width - widthDif,
         oldHeight: height - heightDif
@@ -2262,7 +2254,6 @@ module.exports = function(cy, gridSpacing, gridSpacingOffset) {
         y: ((yPosition + gridSpacingOffset) * gridSpacing) + (height / 2)
       };
     } else {
-      console.log("hi")
       var newPos = {
         x: (xPosition + gridSpacingOffset) * gridSpacing,
         y: (yPosition + gridSpacingOffset) * gridSpacing
