@@ -479,56 +479,49 @@ module.exports = function(opts, cy, debounce) {
     ctx.strokeStyle = options.gridColor;
     ctx.lineWidth = options.lineWidth;
 
-    if (
-      oldSmallestX !== smallestX ||
-      oldLargestX !== largestX ||
-      oldSmallestY !== smallestY ||
-      oldLargestY !== largestY
-    ) {
-      var width = cy.width();
-      var height = cy.height();
+    var width = cy.width();
+    var height = cy.height();
 
-      ctx.clearRect(0, 0, width, height);
+    ctx.clearRect(0, 0, width, height);
 
-      oldSmallestX = smallestX;
-      oldLargestX = largestX;
-      oldSmallestY = smallestY;
-      oldLargestY = largestY;
+    oldSmallestX = smallestX;
+    oldLargestX = largestX;
+    oldSmallestY = smallestY;
+    oldLargestY = largestY;
 
-      for (var y = smallestY; y < largestY; y += increment) {
+    for (var y = smallestY; y < largestY; y += increment) {
+      ctx.beginPath();
+      ctx.moveTo(smallestX, y);
+      ctx.lineTo(largestX, y);
+      ctx.stroke();
+    }
+
+    // Draw large vertical grid lines
+    for (var x = smallestX; x < largestX; x += increment) {
+      ctx.beginPath();
+      ctx.moveTo(x, smallestY);
+      ctx.lineTo(x, largestY);
+      ctx.stroke();
+    }
+
+    if (options.gridSpacingSmall > 0 && options.gridColorSmall) {
+      ctx.strokeStyle = options.gridColorSmall;
+      ctx.lineWidth = options.lineWidthSmall;
+
+      // Draw small horizontal grid lines
+      for (var y = smallestY; y < largestY; y += incrementSmall) {
         ctx.beginPath();
         ctx.moveTo(smallestX, y);
         ctx.lineTo(largestX, y);
         ctx.stroke();
       }
 
-      // Draw large vertical grid lines
-      for (var x = smallestX; x < largestX; x += increment) {
+      // Draw small vertical grid lines
+      for (var x = smallestX; x < largestX; x += incrementSmall) {
         ctx.beginPath();
         ctx.moveTo(x, smallestY);
         ctx.lineTo(x, largestY);
         ctx.stroke();
-      }
-
-      if (options.gridSpacingSmall > 0 && options.gridColorSmall) {
-        ctx.strokeStyle = options.gridColorSmall;
-        ctx.lineWidth = options.lineWidthSmall;
-
-        // Draw small horizontal grid lines
-        for (var y = smallestY; y < largestY; y += incrementSmall) {
-          ctx.beginPath();
-          ctx.moveTo(smallestX, y);
-          ctx.lineTo(largestX, y);
-          ctx.stroke();
-        }
-
-        // Draw small vertical grid lines
-        for (var x = smallestX; x < largestX; x += incrementSmall) {
-          ctx.beginPath();
-          ctx.moveTo(x, smallestY);
-          ctx.lineTo(x, largestY);
-          ctx.stroke();
-        }
       }
     }
   };
