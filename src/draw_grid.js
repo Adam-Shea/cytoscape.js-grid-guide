@@ -48,6 +48,9 @@ module.exports = function(opts, cy, debounce) {
       var height = node.outerHeight() / 2
       var y = node.position("y")
 
+    x = Math.min(Math.max(x, -40000), 40000)
+    y = Math.min(Math.max(y, -40000), 40000)
+
       if (index === 0) {
         smallestX = (x - (width))
         largestX = (x + (width))
@@ -69,6 +72,7 @@ module.exports = function(opts, cy, debounce) {
     var increment = options.gridSpacing * zoom;
     var incrementSmall = options.gridSpacingSmall * zoom;
     var pageSize = options.pageSize ?? 200;
+
 
     largestX += (pageSize - (largestX % pageSize))
     largestY += (pageSize - (largestY % pageSize))
@@ -92,6 +96,11 @@ module.exports = function(opts, cy, debounce) {
     oldLargestX = largestX;
     oldSmallestY = smallestY;
     oldLargestY = largestY;
+
+    smallestY = Math.min(Math.max(smallestY, -5000), 5000)
+    smallestX = Math.min(Math.max(smallestX, -5000), 5000)
+    largestY = Math.min(Math.max(largestY, -5000), 5000)
+    largestX = Math.min(Math.max(largestX, -5000), 5000)
 
     for (var y = smallestY; y < largestY; y += increment) {
       ctx.beginPath();
